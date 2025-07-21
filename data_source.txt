@@ -1,0 +1,2 @@
+https://www.kaggle.com/datasets/db0boy/lending-club-loan-data-cleared - first dataset (binary classification)
+https://www.kaggle.com/datasets/parisrohan/credit-score-classification?select=train.csv - second dataset (3-class classification)
