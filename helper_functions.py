@@ -206,7 +206,7 @@ def display_quality_metrics(y_true, y_pred, y_probs=None, n_classes=2, label='Te
     """For multiclass classification, precision, recall and F1-score are calculated for each class"""
     print(classification_report(y_true=y_true, y_pred=y_pred, target_names=[str(i) for i in range(n_classes)], digits=3))
     
-    if n_classes == 2 and not (y_probs != None).all():
+    if n_classes == 2 and (y_probs != None).all():
         precisions, recalls, _ = precision_recall_curve(y_true=y_true, probas_pred=y_probs, pos_label=1) # y_probs[:, 1]
         avg_precision_score = average_precision_score(y_true=y_true, y_score=y_probs)
         plt.figure(figsize=pr_curve_figsize)
