@@ -1,0 +1,290 @@
+import pandas as pd
+import numpy as np
+import seaborn as sns                                                                                                       
+from matplotlib import pyplot as plt
+
+def numeric_describe(df):
+    pd.set_option('display.float_format', '{:.2f}'.format)
+    numerical_data = df.select_dtypes(["int32", "float32", "int64", "float64"]).dropna()
+    numerical_data_describe = numerical_data.describe()
+    numerical_data_describe.loc['unique'] = numerical_data.nunique()
+    numerical_data_describe.loc['var_coeff [%]'] = 100.0 * numerical_data_describe.loc['std'] / numerical_data_describe.loc['mean']
+    numerical_data_describe.loc['median'] = numerical_data.median()
+    numerical_data_describe.loc['skew'] = numerical_data.skew()
+    numerical_data_describe.loc['kurtosis'] = numerical_data.kurtosis()
+    return numerical_data, numerical_data_describe
+    
+"""adjusting number of rows for subplot"""
+def subplot_shape(df, subplot_cols=3):
+    df_ncols = df.columns.size
+    if df_ncols %subplot_cols == 0:
+        return (int(df_ncols / subplot_cols), subplot_cols)
+    else:
+        return (df_ncols // subplot_cols + 1, subplot_cols)
+
+"""function to draw distributions for variables (columns)"""
+def draw_distribution(df, subplot_size, subplot_cols=3, barplot_max_cols=20, label_rot_for_categorical=0, top_n_freq=5):
+    plot_shape = subplot_shape(df, subplot_cols=subplot_cols)
+    fig, axes = plt.subplots(plot_shape[0], plot_shape[1], figsize=subplot_size)
+    axes = axes.flatten()
+    num_cols = df.shape[1]
+    distribution_type = {}
+    keys = df.columns.values
+    distribution_type = distribution_type.fromkeys(keys)
+
+    for iter, (ax, col) in enumerate(zip(axes, df.columns)):
+        top_frequent = ''
+        data = df[col].dropna().reset_index(drop=True)
+        val_counts = data.value_counts()
+        if data.dtype == 'object':
+            if len(val_counts.index) <= barplot_max_cols / 2:
+                sns.barplot(x=val_counts.index, y=val_counts.values, ax=ax, edgecolor='black')
+            else:
+                top_frequent = f" - TOP {top_n_freq} categories"
+                sns.barplot(x=val_counts.index[0:top_n_freq], y=val_counts.values[0:top_n_freq], ax=ax, edgecolor='black')
+            ax.tick_params(axis='x', labelrotation=label_rot_for_categorical)
+            plot_type = 'barplot'
+        else:  # distributions_for_numerics:
+            if len(val_counts.index) <= barplot_max_cols:
+                sns.barplot(x=val_counts.index, y=val_counts.values, ax=ax, edgecolor='black')
+                plot_type = 'barplot'
+            else:
+                sns.histplot(data=data, bins='auto', ax=ax, edgecolor='black')
+                plot_type = 'histogram'
+        ax.set_title(f"{col}{top_frequent}")
+        ax.set_xlabel('')
+        ax.set_ylabel('')
+        ax.set_axisbelow(True)
+        ax.grid(linewidth=0.8, axis='y')
+        distribution_type[col] = plot_type
+        # Counter for drawing charts process
+        print(f'\rDrawing distribution plots [{iter+1}/{num_cols}]', end='', flush=True)
+    
+    for i, item in enumerate(distribution_type.items()):
+        if i == 0:
+            print('\n')
+        print(item)
+    plt.tight_layout()
+    plt.show()
+
+"""function to determine number of outlier values in a dataframe column"""
+def number_of_outliers(data):
+    Q1 = data.quantile(0.25)
+    Q3 = data.quantile(0.75)
+    IQR = Q3 - Q1
+    lower_bound = Q1 - 1.5 * IQR
+    upper_bound = Q3 + 1.5 * IQR
+    outliers = data[(data < lower_bound) | (data > upper_bound)]
+    return len(outliers)
+
+"""function for drawing boxplots"""
+def draw_boxplots(df, subplot_size=(16, 10), subplot_cols=3, width=0.3):
+    plot_shape = subplot_shape(df, subplot_cols=subplot_cols)
+    fig, axes = plt.subplots(plot_shape[0], plot_shape[1], figsize=subplot_size)
+    axes = axes.flatten()
+    num_cols = df.shape[1]
+    num_outliers = []
+    
+    for iter, (ax, col) in enumerate( zip(axes, df.columns) ):
+        sns.boxplot(data=df[col], ax=ax, width=width)
+        num_outliers.append( number_of_outliers(df[col]) )
+        ax.set_title(col)
+        ax.set_ylabel('')
+        ax.grid(linewidth=0.8)
+        print(f'\rDrawing boxplots [{iter+1}/{num_cols}]', end='', flush=True)
+    print(f'\n{num_outliers}')
+    plt.tight_layout()
+    plt.show()
+
+"""function for handling outliers in a dataframe"""
+def handle_outliers(df, threshold=1.5, remove=False, replace_val='mean'):
+    df_cleaned = df.copy()
+    df_numeric = df_cleaned.select_dtypes(include=['int32', 'float32', 'int64', 'float64'])
+    
+    Q1 = df_numeric.quantile(0.25)
+    Q3 = df_numeric.quantile(0.75)
+    IQR = Q3 - Q1
+
+    # data serieses for lower and upper bounds for each numeric column
+    lower_bound = Q1 - threshold * IQR
+    upper_bound = Q3 + threshold * IQR
+
+    if remove == True:
+        # condition for numeric columns for handling outliers
+        mask = ~((df_numeric < lower_bound) | (df_numeric > upper_bound)).any(axis=1)
+        df_cleaned_no_outliers = df_cleaned[mask]
+        print(f"Customer dataframe INPUT size: {len(df_cleaned)}")
+        print(f"Deleted rows containing outliers: {len(mask[mask==False])}")
+        print(f"Customer dataframe OUTPUT size: {len(df_cleaned_no_outliers)}")
+        return df_cleaned_no_outliers
+
+    else:
+        for col in df_numeric.columns:
+            col_dtype = df_cleaned[col].dtype
+            if replace_val == 'mean':
+                replacement_val = df_cleaned[col].mean()
+            elif replace_val == 'median':
+                replacement_val = df_cleaned[col].median()
+
+            replacement = col_dtype.type(replacement_val) # setting type of the replacement value corresponding to given column
+            outlier_mask_col = ((df_cleaned[col] < lower_bound[col]) | (df_cleaned[col] > upper_bound[col]))
+            df_cleaned.loc[outlier_mask_col, col] = replacement
+
+        return df_cleaned
+
+
+from statsmodels.stats.outliers_influence import variance_inflation_factor
+from statsmodels.tools.tools import add_constant
+
+"""creating linear models for every independent variable between other independent variables"""
+def VIF(numerical_data):    
+     X = numerical_data
+     X = add_constant(X)
+
+     VIFs = pd.Series(
+          [variance_inflation_factor(X.values, i) for i in range(X.shape[1])],
+          index=X.columns
+     )
+     return VIFs
+
+
+from sklearn.preprocessing import OneHotEncoder
+
+"""Encodes categorical columns in the DataFrame using OneHotEncoder."""
+def encode_categoric_data(df):
+    categorical_columns = df.loc[:, df.dtypes == 'object'].columns
+    encoding_values = df[categorical_columns].nunique().values
+    ohe = OneHotEncoder(sparse_output=False, drop='first') 
+    
+    # Fit and transform the categorical columns
+    one_hot_encoded = ohe.fit_transform(df[categorical_columns])
+    one_hot_df = pd.DataFrame(one_hot_encoded, 
+                              index=df.index,
+                              columns=ohe.get_feature_names_out(categorical_columns)).astype('int32')
+    
+    # Concatenate the original DataFrame with the one-hot encoded DataFrame
+    df_encoded = pd.concat([df, one_hot_df], axis=1)
+    df_encoded = df_encoded.drop(categorical_columns, axis=1)
+    
+    for i, (cat_col, encoded_vals) in enumerate(zip(categorical_columns, encoding_values)):
+        print(f"{i+1}) {cat_col} - encoded {encoded_vals} categories")
+    
+    return df_encoded
+
+
+from sklearn.metrics import confusion_matrix, ConfusionMatrixDisplay, accuracy_score, precision_score, recall_score, \
+    f1_score, precision_recall_curve, PrecisionRecallDisplay, classification_report, average_precision_score
+
+"""Confusion matrices"""
+def display_confusion_matrix(y1_true, y1_pred, y2_true, y2_pred, title='', cmap='cividis', 
+                             compare=['Train', 'Validation'], figsize=(15, 6)):
+    
+    cm1 = confusion_matrix(y_true=y1_true, y_pred=y1_pred)
+    cm2 = confusion_matrix(y_true=y2_true, y_pred=y2_pred)
+
+    cm1_disp = ConfusionMatrixDisplay(confusion_matrix=cm1)
+    cm2_disp = ConfusionMatrixDisplay(confusion_matrix=cm2)
+    cms_disp = [cm1_disp, cm2_disp]
+
+    fig, axes = plt.subplots(1, 2, figsize=figsize); axes = axes.flatten();
+    for i, (ax, cm) in enumerate(zip(axes, cms_disp)):
+        cm.plot(ax=ax, cmap=cmap)
+        cm_title = compare[i] 
+        ax.set_xlabel('Predicted target')
+        ax.set_ylabel('True target')
+        ax.set_title(cm_title)
+        ax.invert_yaxis() # Invert y-axis for better readability
+    fig.suptitle(t=title, fontsize=15)
+    plt.tight_layout()
+    plt.show()
+    return cm1, cm2
+
+"""Quality metrics report"""
+def display_quality_metrics(y_true, y_pred, y_probs=None, n_classes=2, label='Test data', pr_curve_figsize=(7, 6), pr_curve_title=''):
+    print(f"{label}:")
+    print(f"Accuracy: {accuracy_score(y_true=y_true, y_pred=y_pred):.3f}")
+    """For multiclass classification, precision, recall and F1-score are calculated for each class"""
+    print(classification_report(y_true=y_true, y_pred=y_pred, target_names=[str(i) for i in range(n_classes)], digits=3))
+    
+    if n_classes == 2 and not (y_probs != None).all():
+        precisions, recalls, _ = precision_recall_curve(y_true=y_true, probas_pred=y_probs, pos_label=1) # y_probs[:, 1]
+        avg_precision_score = average_precision_score(y_true=y_true, y_score=y_probs)
+        plt.figure(figsize=pr_curve_figsize)
+        plt.plot(recalls, precisions, label=f'AP = {avg_precision_score:.4f}', color='black')
+        plt.title(pr_curve_title)
+        plt.xlabel('Recall', fontsize=12); plt.ylabel('Precision', fontsize=12)
+        plt.legend(loc='center left', fontsize=12)
+        plt.grid(linewidth=0.4)
+        plt.show()
+
+from sklearn.inspection import permutation_importance
+
+"""Plots feature importance calculated using permutation importance"""
+def plot_feature_importances(model, model_name, X_data, y_data, n_reps=5, max_num_features=15, n_jobs=-1, figsize=(12, 7), random_state=68):
+    # Getting features and their importances and sorting them by the importance value in descending order
+    # returns sklearn.utils.Bunch object with importances_mean, importances_std and importances, can refer to importances_mean with 
+    # dot '.' operator
+    importances = permutation_importance(model, 
+                                         X_data, 
+                                         y_data, 
+                                         n_repeats=n_reps, 
+                                         random_state=random_state,
+                                         n_jobs=n_jobs) 
+    feature_importances_df = pd.DataFrame(
+                                    dict(zip(X_data.columns, importances.importances_mean)).items(),
+                                    columns=['Feature', 'Importance']).sort_values(by='Importance', ascending=False)
+
+    fig, ax = plt.subplots(figsize=(15, 8))
+    sns.barplot(
+        y='Feature',
+        x='Importance',
+        data=feature_importances_df[:max_num_features],
+        color='dodgerblue',
+        edgecolor='black',
+        orient='h',
+    )
+    for container in ax.containers:
+        ax.bar_label(container, fmt="%.6f", label_type='edge', padding=3)
+    plt.xlabel('Importance', fontsize=14)
+    plt.ylabel('Feature', fontsize=14)
+    plt.title(f'Feature Importances (Mean) - {model_name}', fontsize=16)
+    plt.tight_layout()
+    plt.show()
+
+
+from sklearn.decomposition import PCA
+
+"""PCA visualization for true and predicted"""
+def pca_visualization(X_true, y_true, y_pred, n_classes=2, colors_dict={}, class_names_dict={}, 
+                      model_name='', figsize=(15, 7), point_size=35, alpha=0.6):
+    
+    if len(colors_dict) != n_classes or len(class_names_dict) != n_classes:
+        raise ValueError('Colors dict and class names dict must be defined as class label and corresponding color/class name')
+
+    pca = PCA(n_components=n_classes)
+    components = pca.fit_transform(X_true)
+    fig, axes = plt.subplots(nrows=1, ncols=2, figsize=figsize)
+    axes = axes.flatten() 
+    colors_dict = colors_dict # colors dictionary for classes
+    decoded_classes = class_names_dict # decoded scoring categories for classes
+
+    """Plotting PCA components for true and predicted classes"""
+    for i, (ax, y) in enumerate( zip(axes, [y_true, y_pred]) ):
+        colors = [colors_dict[label] for label in y]
+        ax.scatter(components[:, 0], components[:, 1], c=colors, edgecolor='w', s=point_size, alpha=alpha)
+        # Add grid lines ONLY at the origin (0,0) 
+        ax.axvline(x=0, color='gray', alpha=0.8, zorder=0)
+        ax.axhline(y=0, color='gray', alpha=0.8, zorder=0)
+        title = 'Test data' if i == 0 else 'Predicted classes'
+        ax.set_title(title)
+        ax.set_xlabel('Principal Component 1')
+        ax.set_ylabel('Principal Component 2')
+
+        """Legend"""
+        for class_value, color in colors_dict.items():
+            ax.scatter([], [], c=color, label=f'{class_value} - {decoded_classes[class_value]}')
+        ax.legend(title='Target Class')
+    fig.suptitle(f'PCA Visualization - {model_name}', fontsize=18)
+    plt.tight_layout()
+    plt.show()
+
