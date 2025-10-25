@@ -10,11 +10,13 @@ class NNForClassification(torch.nn.Module):
 
         layers = [torch.nn.Linear(in_features=input_size, out_features=hidden_layers_sizes[0])]
         for i in range( len(hidden_layers_sizes) - 1 ):
-            layers.append( torch.nn.Dropout(p=dropout_prob) )
             layers.append( torch.nn.ReLU() )
+            # layers.append( torch.nn.BatchNorm1d(num_features=hidden_layers_sizes[i]) )
+            layers.append( torch.nn.Dropout(p=dropout_prob) )
             layers.append( torch.nn.Linear(in_features=hidden_layers_sizes[i], out_features=hidden_layers_sizes[i+1]) )
-        layers.append( torch.nn.Dropout(p=dropout_prob) )
         layers.append( torch.nn.ReLU() )
+        # layers.append( torch.nn.BatchNorm1d(num_features=hidden_layers_sizes[-1]) )
+        layers.append( torch.nn.Dropout(p=dropout_prob) )
         layers.append ( torch.nn.Linear(in_features=hidden_layers_sizes[-1], out_features=n_classes) )
         self._layer_stack = torch.nn.Sequential( *layers )
         
@@ -141,7 +143,7 @@ def nn_train(model, optimizer, X_train, y_train, X_valid, y_valid, epochs=1000, 
                 model.break_epoch = epoch
                 break
         
-        if (epoch) % (epochs/10) == 0:
+        if (epoch) % 100 == 0:
             print(f"Epoch: {epoch} | Train loss: {loss:.5f} | Valid loss: {valid_loss:.5f}")
             model.break_epoch = epoch
 

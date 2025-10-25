@@ -200,7 +200,7 @@ def display_confusion_matrix(y1_true, y1_pred, y2_true, y2_pred, title='', cmap=
     return cm1, cm2
 
 """Quality metrics report"""
-def display_quality_metrics(y_true, y_pred, y_probs=None, n_classes=2, label='Test data', pr_curve_figsize=(7, 6), pr_curve_title=''):
+def display_quality_metrics(y_true, y_pred, y_probs=None, n_classes=2, label='Test data', pr_curve_figsize=(6, 5), pr_curve_title=''):
     print(f"{label}:")
     print(f"Accuracy: {accuracy_score(y_true=y_true, y_pred=y_pred):.3f}")
     """For multiclass classification, precision, recall and F1-score are calculated for each class"""
@@ -215,12 +215,13 @@ def display_quality_metrics(y_true, y_pred, y_probs=None, n_classes=2, label='Te
         plt.xlabel('Recall', fontsize=12); plt.ylabel('Precision', fontsize=12)
         plt.legend(loc='center left', fontsize=12)
         plt.grid(linewidth=0.4)
+        plt.tight_layout()
         plt.show()
 
 from sklearn.inspection import permutation_importance
 
 """Plots feature importance calculated using permutation importance"""
-def plot_feature_importances(model, model_name, X_data, y_data, n_reps=5, max_num_features=15, n_jobs=-1, figsize=(12, 7), random_state=68):
+def plot_feature_importances(model, model_name, X_data, y_data, n_reps=5, max_num_features=15, n_jobs=-1, figsize=(11, 6), random_state=68):
     # Getting features and their importances and sorting them by the importance value in descending order
     # returns sklearn.utils.Bunch object with importances_mean, importances_std and importances, can refer to importances_mean with 
     # dot '.' operator
@@ -234,11 +235,12 @@ def plot_feature_importances(model, model_name, X_data, y_data, n_reps=5, max_nu
                                     dict(zip(X_data.columns, importances.importances_mean)).items(),
                                     columns=['Feature', 'Importance']).sort_values(by='Importance', ascending=False)
 
-    fig, ax = plt.subplots(figsize=(15, 8))
+    fig, ax = plt.subplots(figsize=figsize)
     sns.barplot(
         y='Feature',
         x='Importance',
         data=feature_importances_df[:max_num_features],
+        ax=ax,
         color='dodgerblue',
         edgecolor='black',
         orient='h',
@@ -256,7 +258,7 @@ from sklearn.decomposition import PCA
 
 """PCA visualization for true and predicted"""
 def pca_visualization(X_true, y_true, y_pred, n_classes=2, colors_dict={}, class_names_dict={}, 
-                      model_name='', figsize=(15, 7), point_size=35, alpha=0.6):
+                      model_name='', figsize=(13, 6), point_size=35, alpha=0.6, valid_or_test='Validation'):
     
     if len(colors_dict) != n_classes or len(class_names_dict) != n_classes:
         raise ValueError('Colors dict and class names dict must be defined as class label and corresponding color/class name')
@@ -275,7 +277,7 @@ def pca_visualization(X_true, y_true, y_pred, n_classes=2, colors_dict={}, class
         # Add grid lines ONLY at the origin (0,0) 
         ax.axvline(x=0, color='gray', alpha=0.8, zorder=0)
         ax.axhline(y=0, color='gray', alpha=0.8, zorder=0)
-        title = 'Test data' if i == 0 else 'Predicted classes'
+        title = f'{valid_or_test} data' if i == 0 else 'Predicted classes'
         ax.set_title(title)
         ax.set_xlabel('Principal Component 1')
         ax.set_ylabel('Principal Component 2')
