@@ -204,10 +204,11 @@ def display_quality_metrics(y_true, y_pred, y_probs=None, n_classes=2, label='Te
     print(f"{label}:")
     print(f"Accuracy: {accuracy_score(y_true=y_true, y_pred=y_pred):.3f}")
     """For multiclass classification, precision, recall and F1-score are calculated for each class"""
-    print(classification_report(y_true=y_true, y_pred=y_pred, target_names=[str(i) for i in range(n_classes)], digits=3))
+    print( classification_report(y_true=y_true, y_pred=y_pred, target_names=[str(i) for i in range(n_classes)], digits=3) )
     
+    # for binary classification only - draw precision-recall curve
     if n_classes == 2 and (y_probs != None).all():
-        precisions, recalls, _ = precision_recall_curve(y_true=y_true, probas_pred=y_probs, pos_label=1) # y_probs[:, 1]
+        precisions, recalls, _ = precision_recall_curve(y_true=y_true, y_score=y_probs, pos_label=1) # y_probs[:, 1]
         avg_precision_score = average_precision_score(y_true=y_true, y_score=y_probs)
         plt.figure(figsize=pr_curve_figsize)
         plt.plot(recalls, precisions, label=f'AP = {avg_precision_score:.4f}', color='black')
@@ -245,13 +246,32 @@ def plot_feature_importances(model, model_name, X_data, y_data, n_reps=5, max_nu
         edgecolor='black',
         orient='h',
     )
+    # for container in ax.containers:
+    #     # for readability, if label is negative still show it on the right side of the bar
+    #     padding = 3 if float(container) >= 0 else -3 
+    #     ax.bar_label(container, fmt="%.6f", label_type='edge', padding=padding)
     for container in ax.containers:
-        ax.bar_label(container, fmt="%.6f", label_type='edge', padding=3)
+        for rect in container:
+            value = rect.get_width()
+            x = value if value >= 0 else 0
+            y = rect.get_y() + rect.get_height() / 2
+
+            ax.text(
+                x=x + 0.001,
+                y=y,
+                s=f"{value:.6f}",
+                va='center',
+                ha='left',
+                fontsize=10
+            )
     plt.xlabel('Importance', fontsize=14)
     plt.ylabel('Feature', fontsize=14)
     plt.title(f'Feature Importances (Mean) - {model_name}', fontsize=16)
     plt.tight_layout()
     plt.show()
+
+    # returning list of feature names sorted descending by their importance
+    return feature_importances_df['Feature'].tolist()
 
 
 from sklearn.decomposition import PCA
@@ -290,3 +310,55 @@ def pca_visualization(X_true, y_true, y_pred, n_classes=2, colors_dict={}, class
     plt.tight_layout()
     plt.show()
 
+# Alternative PCA visualization using hvplot and holoviews
+# import hvplot.pandas
+# import holoviews as hv
+
+# hv.extension('bokeh') 
+
+# def pca_visualization(X_true, y_true, y_pred, n_classes=2, colors_dict={}, class_names_dict={}, 
+#                       model_name='', point_size=10, alpha=0.6, valid_or_test='Validation'):
+
+#     if len(colors_dict) != n_classes or len(class_names_dict) != n_classes:
+#         raise ValueError('Colors dict and class names dict must be defined as class label and corresponding color/class name')
+
+#     # PCA
+#     pca = PCA(n_components=2)  # zawsze 2 komponenty do wizualizacji
+#     components = pca.fit_transform(X_true)
+#     df = pd.DataFrame(components, columns=['PC1', 'PC2'])
+#     df['y_true'] = y_true
+#     df['y_pred'] = y_pred
+
+#     # Mapa kolorów
+#     color_map = {str(k): v for k, v in colors_dict.items()}  # hvplot wymaga stringów dla kategorii
+#     class_map = {str(k): class_names_dict[k] for k in class_names_dict}
+
+#     # True classes plot
+#     df_true = df.copy()
+#     df_true['y'] = df_true['y_true'].astype(str)
+#     plot_true = df_true.hvplot.scatter(
+#         x='PC1', y='PC2', c='y', cmap=color_map, size=point_size,
+#         alpha=alpha, hover_cols=['y'], title=f'{valid_or_test} data'
+#     ).opts(
+#         xlabel='Principal Component 1',
+#         ylabel='Principal Component 2',
+#         width=600,
+#         height=500
+#     )
+
+#     # Predicted classes plot
+#     df_pred = df.copy()
+#     df_pred['y'] = df_pred['y_pred'].astype(str)
+#     plot_pred = df_pred.hvplot.scatter(
+#         x='PC1', y='PC2', c='y', cmap=color_map, size=point_size,
+#         alpha=alpha, hover_cols=['y'], title='Predicted classes'
+#     ).opts(
+#         xlabel='Principal Component 1',
+#         ylabel='Principal Component 2',
+#         width=600,
+#         height=500
+#     )
+
+#     # Layout obok siebie
+#     layout = (plot_true + plot_pred).opts(title=f'PCA Visualization - {model_name}')
+#     return layout

@@ -1,5 +1,6 @@
 import torch
 import copy
+import numpy as np
 from sklearn.base import BaseEstimator, ClassifierMixin
 
 """Class for Neural Network"""
@@ -28,6 +29,7 @@ class NNForClassification(torch.nn.Module):
         self._valid_losses = []
         self._best_valid_loss = float('inf')
         self._break_epoch = 1
+        self._best_epoch = 1
 
     def forward(self, x):
         x = self.layer_stack(x)
@@ -74,6 +76,13 @@ class NNForClassification(torch.nn.Module):
     def break_epoch(self, value):
         self._break_epoch = value
 
+    @property   
+    def best_epoch(self):
+        return self._best_epoch
+
+    @best_epoch.setter
+    def best_epoch(self, value):
+        self._best_epoch = value
 
 """Neural Network training process"""
 def nn_train(model, optimizer, X_train, y_train, X_valid, y_valid, epochs=1000, patience=100, random_state=68):
@@ -136,10 +145,11 @@ def nn_train(model, optimizer, X_train, y_train, X_valid, y_valid, epochs=1000, 
         else:
             epochs_no_improve += 1
             if epochs_no_improve >= patience:
+                model.best_epoch = int(epoch-patience)
                 print(f"Early stopping at epoch {epoch} ...")
                 print(f"\nEpoch: {epoch} | Train loss: {loss:.5f} | Valid loss: {valid_loss:.5f}")    
-                print(f"Best model obtained at epoch {epoch - patience}")
-                print(f"Epoch: {epoch - patience} | Train loss: {best_train_loss:.5f} | Valid loss: {best_valid_loss:.5f}")
+                print(f"Best model obtained at epoch {model.best_epoch}")
+                print(f"Epoch: {model.best_epoch} | Train loss: {best_train_loss:.5f} | Valid loss: {best_valid_loss:.5f}")
                 model.break_epoch = epoch
                 break
         
