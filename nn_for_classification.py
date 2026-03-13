@@ -94,7 +94,7 @@ def nn_train(model, optimizer, X_train, y_train, X_valid, y_valid, epochs=1000, 
         model.train()
         
         # Forward pass
-        y_train_logits = model(X_train).squeeze() # logits for train data
+        y_train_logits = model(X_train) # logits for train data
         # y_train_probs = torch.softmax(y_train_logits, dim=1)
         # y_train_pred = y_train_probs.argmax(dim=1) # probabilities -> labels (predictions)
         
@@ -124,8 +124,8 @@ def nn_train(model, optimizer, X_train, y_train, X_valid, y_valid, epochs=1000, 
         # Evaluate on validation set
         model.eval()
         with torch.no_grad():   
-            y_valid_logits = model(X_valid).squeeze() # logits for valid data
-            # y_valid_probs = torch.softmax(y_valid_logits, dim=1)
+            y_valid_logits = model(X_valid) # logits for valid data
+            # y_valid_probs = torch.softmax(y_valid_logits, dim=-1)
             # y_valid_pred = y_valid_probs.argmax(dim=1) # probabilities -> labels (predictions)
             valid_loss = model.loss_fn(y_valid_logits, y_valid)
             # Save current valid loss
@@ -225,22 +225,22 @@ class NeuralNetClassifier(BaseEstimator, ClassifierMixin):
                                                 epochs=self.epochs,
                                                 patience=self.patience,
                                                 random_state=self.random_state
-        )
+                                            )
         return self
     
     def predict_proba(self, X):
         self.best_model.eval()
         with torch.inference_mode():
             X_tensor = torch.tensor(X.to_numpy(), dtype=torch.float32).to( self.device )
-            logits = self.best_model(X_tensor).squeeze()
-            probs = torch.softmax(logits, dim=1).cpu().numpy()
+            logits = self.best_model(X_tensor) 
+            probs = torch.softmax(logits, dim=-1).cpu().numpy()
         return probs
     
     def predict(self, X):
         self.best_model.eval()
         with torch.inference_mode():
             X_tensor = torch.tensor(X.to_numpy(), dtype=torch.float32).to( self.device )
-            logits = self.best_model(X_tensor).squeeze()
-            probs = torch.softmax(logits, dim=1)
+            logits = self.best_model(X_tensor) 
+            probs = torch.softmax(logits, dim=-1)
             preds = probs.argmax(dim=1).cpu().numpy()
         return preds

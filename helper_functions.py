@@ -2,6 +2,7 @@ import pandas as pd
 import numpy as np
 import seaborn as sns                                                                                                       
 from matplotlib import pyplot as plt
+import torch
 
 def numeric_describe(df):
     pd.set_option('display.float_format', '{:.2f}'.format)
@@ -154,26 +155,55 @@ from sklearn.preprocessing import OneHotEncoder
 def encode_categoric_data(df):
     categorical_columns = df.loc[:, df.dtypes == 'object'].columns
     encoding_values = df[categorical_columns].nunique().values
+    # drop='first' to avoid dummy variable trap, dropping first category in each categorical column
     ohe = OneHotEncoder(sparse_output=False, drop='first') 
-    
+
     # Fit and transform the categorical columns
     one_hot_encoded = ohe.fit_transform(df[categorical_columns])
+    # Create a DataFrame with the one-hot encoded columns
     one_hot_df = pd.DataFrame(one_hot_encoded, 
                               index=df.index,
                               columns=ohe.get_feature_names_out(categorical_columns)).astype('int32')
     
     # Concatenate the original DataFrame with the one-hot encoded DataFrame
     df_encoded = pd.concat([df, one_hot_df], axis=1)
-    df_encoded = df_encoded.drop(categorical_columns, axis=1)
-    
+    df_encoded = df_encoded.drop(columns=categorical_columns)
+     
+    # Categories for each categorical column are in a list of np.arrays, dropped first category for each feature (in encoding)  
+    # so extracting it as a reference category
+    ref_cat_values = [ref_cat[0] for ref_cat in ohe.categories_]
+    # Reference category values for each categorical column in dictionary, 
+    ref_categories = dict(zip(categorical_columns, ref_cat_values))
+
     for i, (cat_col, encoded_vals) in enumerate(zip(categorical_columns, encoding_values)):
-        print(f"{i+1}) {cat_col} - encoded {encoded_vals} categories")
+        print(f"{i+1}) {cat_col} - encoded {encoded_vals} categories [reference category: '{ref_categories[cat_col]}']")
     
     return df_encoded
 
 
 from sklearn.metrics import confusion_matrix, ConfusionMatrixDisplay, accuracy_score, precision_score, recall_score, \
-    f1_score, precision_recall_curve, PrecisionRecallDisplay, classification_report, average_precision_score
+    f1_score, fbeta_score, precision_recall_curve, PrecisionRecallDisplay, classification_report, average_precision_score
+
+"""Obtaining optimal decision threshold for binary classification based on maximizing recall"""
+def find_optimal_threshold(y_train_true, y_train_proba, beta=None):
+    precisions, recalls, thresholds = precision_recall_curve(y_train_true, y_train_proba)
+    
+    if beta is None:
+        # Set beta as the square root of the class frequency ratio (negative class frequency / positive class frequency)
+        class_counts = y_train_true.value_counts()
+        class_freq_ratio = class_counts.loc[0] / class_counts.loc[1]
+        beta = np.sqrt(class_freq_ratio)
+    elif beta <= 0:
+        raise ValueError(f'Beta parameter should be a positive value, but got {beta} instead.')
+    elif not isinstance(beta, (int, float)):
+        raise TypeError(f'Beta parameter should be a numeric value, but got {type(beta)} instead.')
+    
+    beta2 = beta**2
+    fb_scores = (1 + beta2) * (precisions[:-1] * recalls[:-1]) / \
+                (beta2 * precisions[:-1] + recalls[:-1])
+    optimal_idx = np.argmax(fb_scores)
+
+    return thresholds[optimal_idx], fb_scores[optimal_idx]
 
 """Confusion matrices"""
 def display_confusion_matrix(y1_true, y1_pred, y2_true, y2_pred, title='', cmap='cividis', 
@@ -226,6 +256,11 @@ def plot_feature_importances(model, model_name, X_data, y_data, n_reps=5, max_nu
     # Getting features and their importances and sorting them by the importance value in descending order
     # returns sklearn.utils.Bunch object with importances_mean, importances_std and importances, can refer to importances_mean with 
     # dot '.' operator
+    try:
+        print(f'Calculating feature importances for {model_name.capitalize()} model ...')
+    except TypeError as te:
+        print(f'{te}: model_name parameter should be a string type but got {type(model_name)} instead.')
+
     importances = permutation_importance(model, 
                                          X_data, 
                                          y_data, 
@@ -273,6 +308,71 @@ def plot_feature_importances(model, model_name, X_data, y_data, n_reps=5, max_nu
     # returning list of feature names sorted descending by their importance
     return feature_importances_df['Feature'].tolist()
 
+
+import shap 
+
+"""Shapley values analysis and visualization for explainability"""
+def plot_shap_values(model, model_name, X_train, X_valid, y_valid, max_display=15, row_idx=0, random_state=68):
+    try:
+        print(f'Calculating SHAP values for {model_name.capitalize()} model ...')
+    except TypeError as te:
+        print(f'{te}: model_name parameter should be a string type but got {type(model_name)} instead.')
+
+    model_name = model_name.lower()
+    if model_name == 'logistic regression':
+        explainer = shap.Explainer(
+                            model=model, 
+                            masker=X_train, 
+                            seed=random_state
+                        )
+        shap_values = explainer(X_valid)   
+        print((shap_values, type(shap_values), shap_values.shape))
+
+    elif model_name in ['xgboost', 'random forest']:
+        explainer = shap.TreeExplainer(model=model, approximate=True)
+        # For speeding up the process of calculating SHAP values for Random Forest model, using only 10% of validation data
+        n_samples = int(0.1 * len(X_valid))
+        X_valid = X_valid.sample(n=n_samples, random_state=random_state) if model_name == 'random forest' else X_valid
+        shap_values = explainer(X_valid)
+        print((shap_values, type(shap_values), shap_values.shape))
+        # For Random Forest shap_values has 3 dimensions where last dim corresponds to class so have to 
+        # select specific class (in this case class 1 - default)
+        shap_values = shap_values[:, :, 1] if model_name == 'random forest' else shap_values
+
+    elif model_name == 'neural network':
+        def model_fn(X):
+            # X is a dataframe here, it is converted into tensor in predict_proba method for NeuralNetClassifier object
+            return model.predict_proba(X)
+        
+        masker = shap.maskers.Independent(X_train)
+        explainer = shap.Explainer(
+            model=model_fn,
+            masker=masker,
+            seed=random_state
+        )
+
+        shap_values = explainer(X_valid)
+        print((shap_values, type(shap_values), shap_values.shape))
+        # shap_values for class 1 (default case), for explainer with masker it returns list of arrays for each class
+        shap_values = shap_values[:, :, 1]
+
+    # using sample input for waterfall plot, transpose (T) and reset_index required to ensure correct shape and indexing 
+    # for subset of the validation data
+    sample_input = pd.DataFrame(data=X_valid.reset_index(drop=True).iloc[row_idx, :]).T
+    sample_output = y_valid.reset_index(drop=True).iloc[row_idx]
+    sample_pred = model.predict(sample_input)[0] # get the value from 1 elem array
+        
+    shap.plots.beeswarm(shap_values, max_display=max_display, show=False)
+    plt.title(f'SHAP Values (entire set) - {model_name.capitalize()}', fontsize=16)
+    plt.tight_layout()
+    plt.show()
+
+    print(f"Sample pred: {sample_pred}")
+
+    shap.plots.waterfall(shap_values[row_idx], max_display=max_display, show=False)
+    plt.title(f'SHAP Values (sample prediction) - {model_name.capitalize()}, Case = {sample_output} (Pred = {sample_pred})', fontsize=16)
+    plt.tight_layout()
+    plt.show()
 
 from sklearn.decomposition import PCA
 
