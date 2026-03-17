@@ -184,13 +184,14 @@ def encode_categoric_data(df):
 from sklearn.metrics import confusion_matrix, ConfusionMatrixDisplay, accuracy_score, precision_score, recall_score, \
     f1_score, fbeta_score, precision_recall_curve, PrecisionRecallDisplay, classification_report, average_precision_score
 
-"""Obtaining optimal decision threshold for binary classification based on maximizing recall"""
-def find_optimal_threshold(y_train_true, y_train_proba, beta=None):
-    precisions, recalls, thresholds = precision_recall_curve(y_train_true, y_train_proba)
+"""Obtaining optimal decision threshold for binary classification based on maximizing Fbeta-score, for beta > 1 more weight is given to recall,
+for beta < 1 more weight is given to precision, for beta = 1 it is equivalent to maximizing F1-score"""
+def find_optimal_threshold(y_true, y_proba, beta=None):
+    precisions, recalls, thresholds = precision_recall_curve(y_true, y_proba)
     
     if beta is None:
         # Set beta as the square root of the class frequency ratio (negative class frequency / positive class frequency)
-        class_counts = y_train_true.value_counts()
+        class_counts = y_true.value_counts()
         class_freq_ratio = class_counts.loc[0] / class_counts.loc[1]
         beta = np.sqrt(class_freq_ratio)
     elif beta <= 0:

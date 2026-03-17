@@ -5,7 +5,8 @@ from sklearn.base import BaseEstimator, ClassifierMixin
 
 """Class for Neural Network"""
 class NNForClassification(torch.nn.Module):
-    def __init__(self, input_size, hidden_layers_sizes=[64, 32, 16], n_classes=2, dropout_prob=0.2, regularization_type=None, lambda_reg=0.1):
+    def __init__(self, input_size, hidden_layers_sizes=[64, 32, 16], n_classes=2, dropout_prob=0.2, 
+                 class_weights=None, regularization_type=None, lambda_reg=0.1):
         super().__init__()
         self._n_classes = n_classes
 
@@ -22,7 +23,8 @@ class NNForClassification(torch.nn.Module):
         self._layer_stack = torch.nn.Sequential( *layers )
         
         # self.output_activation = torch.nn.Softmax(dim=1)
-        self._loss_fn = torch.nn.CrossEntropyLoss()
+        self._class_weights = class_weights
+        self._loss_fn = torch.nn.CrossEntropyLoss( weight=self._class_weights )
         self._reg_type = regularization_type
         self._lambda_reg = lambda_reg
         self._train_losses = []
@@ -40,6 +42,10 @@ class NNForClassification(torch.nn.Module):
     def layer_stack(self):
         return self._layer_stack
 
+    @property
+    def class_weights(self):
+        return self._class_weights
+    
     @property
     def loss_fn(self):
         return self._loss_fn
@@ -98,7 +104,7 @@ def nn_train(model, optimizer, X_train, y_train, X_valid, y_valid, epochs=1000, 
         # y_train_probs = torch.softmax(y_train_logits, dim=1)
         # y_train_pred = y_train_probs.argmax(dim=1) # probabilities -> labels (predictions)
         
-        # Calculate loss (Inside CrossEntropy there is Softmax calculateda so as input we put logits)
+        # Calculate loss (Inside CrossEntropy there is Softmax calculated so as input we put logits)
         loss = model.loss_fn(y_train_logits, y_train)
 
         # Apply L1 regularization
@@ -163,10 +169,11 @@ def nn_train(model, optimizer, X_train, y_train, X_valid, y_valid, epochs=1000, 
 
 """Wrapper class for PyTorch Neural Network to be compatible with scikit-learn framework"""
 class NeuralNetClassifier(BaseEstimator, ClassifierMixin):
-    def __init__(self, hidden_layers_sizes=[64, 32], dropout_prob=0.2, regularization_type=None, 
+    def __init__(self, hidden_layers_sizes=[64, 32], dropout_prob=0.2, class_weights=None, regularization_type=None, 
                  lambda_reg=0.1, epochs=1000, lr=0.001, patience=100, random_state=68, device='cpu'):
         self.hidden_layers_sizes = hidden_layers_sizes
         self.dropout_prob = dropout_prob
+        self.class_weights = class_weights
         self.regularization_type = regularization_type
         self.lambda_reg = lambda_reg
         self.epochs = epochs
@@ -175,6 +182,7 @@ class NeuralNetClassifier(BaseEstimator, ClassifierMixin):
         self._best_model = None
         self._last_model = None
         self.random_state = random_state
+        self.optimizer = None
         self.device = device
 
     @property
@@ -201,13 +209,14 @@ class NeuralNetClassifier(BaseEstimator, ClassifierMixin):
                     hidden_layers_sizes=self.hidden_layers_sizes,
                     n_classes=len( y_train.unique() ),
                     dropout_prob=self.dropout_prob,
+                    class_weights=self.class_weights,
                     regularization_type=self.regularization_type,
                     lambda_reg=self.lambda_reg
         ).to( self.device )
 
-
         optimizer = torch.optim.Adam(model.parameters(), lr=self.lr)
-        
+        self.optimizer = optimizer
+
         # Converting dataframes to tensors
         X_train_tensor = torch.tensor( X_train.to_numpy(), dtype=torch.float32, device=self.device )
         y_train_tensor = torch.tensor( y_train.to_numpy(), dtype=torch.long, device=self.device )
