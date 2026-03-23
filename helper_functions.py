@@ -253,7 +253,8 @@ def display_quality_metrics(y_true, y_pred, y_probs=None, n_classes=2, label='Te
 from sklearn.inspection import permutation_importance
 
 """Plots feature importance calculated using permutation importance"""
-def plot_feature_importances(model, model_name, X_data, y_data, n_reps=5, max_num_features=15, n_jobs=-1, figsize=(11, 6), random_state=68):
+def plot_feature_importances(model, model_name, X_data, y_data, n_reps=5, max_num_features=15, n_jobs=-1, 
+                             figsize=(11, 6), random_state=68):
     # Getting features and their importances and sorting them by the importance value in descending order
     # returns sklearn.utils.Bunch object with importances_mean, importances_std and importances, can refer to importances_mean with 
     # dot '.' operator
@@ -262,9 +263,9 @@ def plot_feature_importances(model, model_name, X_data, y_data, n_reps=5, max_nu
     except TypeError as te:
         print(f'{te}: model_name parameter should be a string type but got {type(model_name)} instead.')
 
-    importances = permutation_importance(model, 
-                                         X_data, 
-                                         y_data, 
+    importances = permutation_importance(estimator=model, 
+                                         X=X_data, 
+                                         y=y_data, 
                                          n_repeats=n_reps, 
                                          random_state=random_state,
                                          n_jobs=n_jobs) 
