@@ -11,12 +11,12 @@ class MLPClassifier(torch.nn.Module):
 
         layers = [torch.nn.Linear(in_features=input_size, out_features=hidden_layers_sizes[0])]
         for i in range( len(hidden_layers_sizes) - 1 ):
+            layers.append( torch.nn.BatchNorm1d(num_features=hidden_layers_sizes[i]) )
             layers.append( torch.nn.ReLU() )
-            # layers.append( torch.nn.BatchNorm1d(num_features=hidden_layers_sizes[i]) )
             layers.append( torch.nn.Dropout(p=dropout_prob) )
             layers.append( torch.nn.Linear(in_features=hidden_layers_sizes[i], out_features=hidden_layers_sizes[i+1]) )
+        layers.append( torch.nn.BatchNorm1d(num_features=hidden_layers_sizes[-1]) )
         layers.append( torch.nn.ReLU() )
-        # layers.append( torch.nn.BatchNorm1d(num_features=hidden_layers_sizes[-1]) )
         layers.append( torch.nn.Dropout(p=dropout_prob) )
         layers.append ( torch.nn.Linear(in_features=hidden_layers_sizes[-1], out_features=n_classes) )
 
@@ -69,7 +69,6 @@ class ModelTrainer():
             # Forward pass
             y_train_logits = self.model( self.X_train ) # logits for train data
             # y_train_probs = torch.softmax(y_train_logits, dim=1)
-            # y_train_pred = y_train_probs.argmax(dim=1) # probabilities -> labels (predictions)
             
             # Calculate loss (Inside CrossEntropy there is Softmax calculated so as input we put logits)
             loss = self.loss_fn(y_train_logits, self.y_train)
@@ -81,7 +80,7 @@ class ModelTrainer():
                 
             # Apply L2 regularization, previous implementation (commented out) was based on manual calculation of L2 norm, 
             # but now we use weight decay in the optimizer which is more efficient and numerically stable
-            # elif self.reg_type == 'L2':
+            # elif self.reg_type.lower() == 'l2':
             #     l2_norm = sum(param.pow(2).sum() for param in self.model.parameters())
             #     loss += self.lambda_reg * l2_norm
 
@@ -138,7 +137,7 @@ from sklearn.model_selection import train_test_split
 """Wrapper class for PyTorch Neural Network to be compatible with scikit-learn framework"""
 class NeuralNetClassifier(BaseEstimator, ClassifierMixin):
     def __init__(self, hidden_layers_sizes=[64, 32], dropout_prob=0.2, class_weights=None, learning_rate=0.001, optimizer=None,
-                 validation_split=0.2, regularization_type=None, lambda_reg=0.1, epochs=1000, patience=100, random_state=68, device='cpu'):
+                 validation_split=0.25, regularization_type=None, lambda_reg=0.1, epochs=1000, patience=100, random_state=68, device='cpu'):
         self.hidden_layers_sizes = hidden_layers_sizes
         self.dropout_prob = dropout_prob
         self.class_weights = class_weights
