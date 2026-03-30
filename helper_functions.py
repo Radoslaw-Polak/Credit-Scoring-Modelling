@@ -2,7 +2,6 @@ import pandas as pd
 import numpy as np
 import seaborn as sns                                                                                                       
 from matplotlib import pyplot as plt
-import torch
 
 def numeric_describe(df):
     pd.set_option('display.float_format', '{:.2f}'.format)
@@ -18,13 +17,21 @@ def numeric_describe(df):
 """adjusting number of rows for subplot"""
 def subplot_shape(df, subplot_cols=3):
     df_ncols = df.columns.size
-    if df_ncols %subplot_cols == 0:
+    if df_ncols % subplot_cols == 0:
         return (int(df_ncols / subplot_cols), subplot_cols)
     else:
         return (df_ncols // subplot_cols + 1, subplot_cols)
 
 """function to draw distributions for variables (columns)"""
-def draw_distribution(df, subplot_size, subplot_cols=3, barplot_max_cols=20, label_rot_for_categorical=0, top_n_freq=5, plot_color='tab:blue'):
+def draw_distribution(
+        df, 
+        subplot_size, 
+        subplot_cols=3, 
+        barplot_max_cols=20, 
+        label_rot_for_categorical=0, 
+        top_n_freq=5, 
+        plot_color='tab:blue'
+    ):
     plot_shape = subplot_shape(df, subplot_cols=subplot_cols)
     fig, axes = plt.subplots(plot_shape[0], plot_shape[1], figsize=subplot_size)
     axes = axes.flatten()
@@ -103,7 +110,13 @@ def number_of_outliers(data):
     return len(outliers)
 
 """function for drawing boxplots"""
-def draw_boxplots(df, subplot_size=(16, 10), subplot_cols=3, width=0.3, plot_color='tab:blue'):
+def draw_boxplots(
+        df, 
+        subplot_size=(16, 10), 
+        subplot_cols=3, 
+        width=0.3, 
+        plot_color='tab:blue'
+    ):
     plot_shape = subplot_shape(df, subplot_cols=subplot_cols)
     fig, axes = plt.subplots(plot_shape[0], plot_shape[1], figsize=subplot_size)
     axes = axes.flatten()
@@ -127,7 +140,12 @@ def draw_boxplots(df, subplot_size=(16, 10), subplot_cols=3, width=0.3, plot_col
     plt.show()
 
 """function for handling outliers in a dataframe"""
-def handle_outliers(df, threshold=1.5, remove=False, replace_val='mean'):
+def handle_outliers(
+        df, 
+        threshold=1.5, 
+        remove=False, 
+        replace_val='mean'
+    ):
     df_cleaned = df.copy()
     df_numeric = df_cleaned.select_dtypes(include=['int32', 'float32', 'int64', 'float64'])
     
@@ -190,9 +208,11 @@ def encode_categoric_data(df):
     # Fit and transform the categorical columns
     one_hot_encoded = ohe.fit_transform(df[categorical_columns])
     # Create a DataFrame with the one-hot encoded columns
-    one_hot_df = pd.DataFrame(one_hot_encoded, 
-                              index=df.index,
-                              columns=ohe.get_feature_names_out(categorical_columns)).astype('int32')
+    one_hot_df = pd.DataFrame(
+        one_hot_encoded, 
+        index=df.index,
+        columns=ohe.get_feature_names_out(categorical_columns)
+    ).astype(int)
     
     # Concatenate the original DataFrame with the one-hot encoded DataFrame
     df_encoded = pd.concat([df, one_hot_df], axis=1)
@@ -219,7 +239,12 @@ import numpy as np
 import matplotlib.pyplot as plt
 from sklearn.metrics import precision_recall_curve
 
-def find_optimal_threshold(y_true, y_proba, beta=None, figsize=(6, 4)):
+def find_optimal_threshold(
+        y_true, 
+        y_proba, 
+        beta=None, 
+        figsize=(6, 4.5)
+    ):
     precisions, recalls, thresholds = precision_recall_curve(y_true, y_proba)
     
     if beta is None:
@@ -262,13 +287,18 @@ def find_optimal_threshold(y_true, y_proba, beta=None, figsize=(6, 4)):
     
     # Plotting
     plt.figure(figsize=figsize)
-    plt.plot(thresholds, fbeta_scores, color='black', label='F-beta score')
+    plt.plot(
+        thresholds, 
+        fbeta_scores, 
+        color='black', 
+        label=f'Fbeta-score [beta = {beta:.2f}]'
+    )
     plt.scatter(
         x=best_threshold, 
         y=best_fbeta_score,
         color='red',
         marker='o',
-        label=f'Best threshold ({best_threshold:.3f})'
+        label=f'Best threshold [{best_threshold:.3f}]'
     )
     plt.xlabel('Threshold', fontsize=12)
     plt.ylabel(f'F{beta:.2f}-score', fontsize=12)
@@ -278,11 +308,19 @@ def find_optimal_threshold(y_true, y_proba, beta=None, figsize=(6, 4)):
     plt.tight_layout()
     plt.show()
     
-    return best_threshold, best_fbeta_score
+    return best_threshold, best_fbeta_score, beta
 
 """Confusion matrices"""
-def display_confusion_matrix(y1_true, y1_pred, y2_true, y2_pred, title='', cmap='cividis', 
-                             compare=['Train', 'Validation'], figsize=(15, 6)):
+def display_confusion_matrix(
+        y1_true, 
+        y1_pred, 
+        y2_true, 
+        y2_pred, 
+        title='', 
+        cmap='cividis', 
+        compare=['Train', 'Validation'], 
+        figsize=(15, 6)
+    ):
     
     cm1 = confusion_matrix(y_true=y1_true, y_pred=y1_pred)
     cm2 = confusion_matrix(y_true=y2_true, y_pred=y2_pred)
@@ -306,29 +344,45 @@ def display_confusion_matrix(y1_true, y1_pred, y2_true, y2_pred, title='', cmap=
     return cm1, cm2
 
 """Quality metrics report"""
-def quality_metrics(y_true, y_pred, y_probs=None, pos_class_label=1, label='Test data', pr_curve_figsize=(6, 5), pr_curve_title=''):
+def quality_metrics(
+        y_true, 
+        y_pred, 
+        y_probs=None, 
+        pos_class_label=1, 
+        label='Test data', 
+        pr_curve_figsize=(6, 5), 
+        pr_curve_title=''
+    ):
+
     n_classes = len( np.unique(y_true) )
     print(f"{label}:")
     print(f"Accuracy: {accuracy_score(y_true=y_true, y_pred=y_pred):.3f}")
+    
     """For multiclass classification, precision, recall and F1-score are calculated for each class"""
     old_format = pd.options.display.float_format
     pd.options.display.float_format = '{:.3f}'.format
     score_results = pd.DataFrame(
-      classification_report(
-        y_true=y_true, 
-        y_pred=y_pred, 
-        target_names=[str(i) for i in range(n_classes)], 
-        digits=3,
-        output_dict=True
-      )
+        classification_report(
+            y_true=y_true, 
+            y_pred=y_pred, 
+            target_names=[str(i) for i in range(n_classes)], 
+            digits=3,
+            output_dict=True
+        )
     ).round(decimals=3) 
     print(score_results)
+
     # for binary classification only - draw precision-recall curve
     if n_classes == 2 and (y_probs != None).all():
         precisions, recalls, _ = precision_recall_curve(y_true=y_true, y_score=y_probs, pos_label=pos_class_label) # y_probs[:, 1]
         avg_precision_score = average_precision_score(y_true=y_true, y_score=y_probs)
         plt.figure(figsize=pr_curve_figsize)
-        plt.plot(recalls, precisions, label=f'AP = {avg_precision_score:.4f}', color='black')
+        plt.plot(
+            recalls, 
+            precisions, 
+            label=f'AP = {avg_precision_score:.4f}', 
+            color='black'
+        )
         plt.title(pr_curve_title)
         plt.xlabel('Recall', fontsize=12); plt.ylabel('Precision', fontsize=12)
         plt.legend(loc='center left', fontsize=12)
@@ -341,9 +395,31 @@ def quality_metrics(y_true, y_pred, y_probs=None, pos_class_label=1, label='Test
 
 from sklearn.inspection import permutation_importance
 
+def make_threshold_scorer(scoring='fbeta', threshold=0.5, beta=1):
+    def scorer(model, X, y):
+        y_proba = model.predict_proba(X)[:, 1]
+        y_pred = (y_proba >= threshold).astype(int)
+
+        if scoring == 'fbeta':
+            return fbeta_score(y, y_pred, beta=beta)
+        elif scoring == 'recall':
+            return recall_score(y, y_pred)
+        
+    return scorer
+
 """Plots feature importance calculated using permutation importance"""
-def plot_feature_importances(model, model_name, X_data, y_data, n_reps=5, max_num_features=15, 
-                             n_jobs=-1, figsize=(11, 6), random_state=68):
+def plot_feature_importances(
+        model, 
+        model_name, 
+        X_data, 
+        y_data, 
+        n_reps=5, 
+        scoring=None,   
+        max_num_features=15, 
+        n_jobs=-1, 
+        figsize=(11, 6), 
+        random_state=68
+    ):
     # Getting features and their importances and sorting them by the importance value in descending order
     # returns sklearn.utils.Bunch object with importances_mean, importances_std and importances, can refer to importances_mean with 
     # dot '.' operator
@@ -352,28 +428,34 @@ def plot_feature_importances(model, model_name, X_data, y_data, n_reps=5, max_nu
     except TypeError as te:
         print(f'{te}: model_name parameter should be a string type but got {type(model_name)} instead.')
 
+    if hasattr(X_data, "columns"):
+        feature_names = X_data.columns
+    else:
+        feature_names = [f"feature_{i}" for i in range(X_data.shape[1])]
+
     importances = permutation_importance(
-      estimator=model, 
-      X=X_data, 
-      y=y_data, 
-      n_repeats=n_reps, 
-      random_state=random_state,
-      n_jobs=n_jobs
+        estimator=model, 
+        X=X_data, 
+        y=y_data, 
+        n_repeats=n_reps, 
+        scoring=scoring,
+        random_state=random_state,
+        n_jobs=n_jobs
     ) 
-    feature_importances_df = pd.DataFrame(
-      dict( zip(X_data.columns, importances.importances_mean) ).items(),
-      columns=['Feature', 'Importance']).sort_values(by='Importance', ascending=False
-    )
+    feature_importances_df = pd.DataFrame({
+        "Feature": feature_names,
+        "Importance": importances.importances_mean
+    }).sort_values(by="Importance", ascending=False)
 
     fig, ax = plt.subplots(figsize=figsize)
     sns.barplot(
-      y='Feature',
-      x='Importance',
-      data=feature_importances_df[:max_num_features],
-      ax=ax,
-      color='dodgerblue',
-      edgecolor='black',
-      orient='h'
+        y='Feature',
+        x='Importance',
+        data=feature_importances_df[:max_num_features],
+        ax=ax,
+        color='dodgerblue',
+        edgecolor='black',
+        orient='h'
     )
   
     # for readability, if label is negative still show it on the right side of the bar
@@ -384,12 +466,12 @@ def plot_feature_importances(model, model_name, X_data, y_data, n_reps=5, max_nu
             y = rect.get_y() + rect.get_height() / 2
 
             ax.text(
-              x=x + 0.001,
-              y=y,
-              s=f"{value:.6f}",
-              va='center',
-              ha='left',
-              fontsize=10
+                x=x + 0.001,
+                y=y,
+                s=f"{value:.4f}",
+                va='center',
+                ha='left',
+                fontsize=10
             )
     plt.xlabel('Importance', fontsize=14); plt.ylabel('Feature', fontsize=14)
     plt.title(f'Feature Importances (Mean) - {model_name}', fontsize=16)
@@ -403,7 +485,17 @@ def plot_feature_importances(model, model_name, X_data, y_data, n_reps=5, max_nu
 import shap 
 
 """Shapley values analysis and visualization for explainability"""
-def plot_shap_values(model, model_name, X_train, X_valid, y_valid, max_display=15, sample_class_label=1, threshold=0.5, random_state=68):
+def plot_shap_values(
+        model, 
+        model_name, 
+        X_train, 
+        X_valid, 
+        y_valid, 
+        max_display=15, 
+        sample_class_label=1, 
+        threshold=0.5, 
+        random_state=68
+    ):
     try:
         print(f'Calculating SHAP values for {model_name.capitalize()} model ...')
     except TypeError as te:
@@ -414,19 +506,20 @@ def plot_shap_values(model, model_name, X_train, X_valid, y_valid, max_display=1
 
     model_name = model_name.lower()
     X_val, y_val = X_valid.copy(), y_valid.copy()
+
     if model_name == 'logistic regression':
         explainer = shap.Explainer(
-          model=model, 
-          masker=X_train, 
-          seed=random_state
+            model=model, 
+            masker=X_train, 
+            seed=random_state
         )
         shap_values = explainer(X_valid)   
         print((shap_values, type(shap_values), shap_values.shape))
 
     elif model_name in ['xgboost', 'random forest']:
         explainer = shap.TreeExplainer(
-          model=model, 
-          approximate=True
+            model=model, 
+            approximate=True
         )
         # For speeding up the process of calculating SHAP values for Random Forest model, using only 10% of validation data
         n_samples = int(0.2 * len(X_valid))
@@ -467,9 +560,9 @@ def plot_shap_values(model, model_name, X_train, X_valid, y_valid, max_display=1
     sample_pred = np.where( sample_prob > threshold, 1, 0)
 
     shap.plots.beeswarm(
-      shap_values, 
-      max_display=max_display, 
-      show=False
+        shap_values, 
+        max_display=max_display, 
+        show=False
     )
     plt.title(f'SHAP Values (entire set) - {model_name.capitalize()}', fontsize=16)
     plt.tight_layout()
@@ -478,12 +571,15 @@ def plot_shap_values(model, model_name, X_train, X_valid, y_valid, max_display=1
     print(f"Sample pred: {sample_pred}")
 
     shap.plots.waterfall(
-      shap_values[obs_idx], 
-      max_display=max_display, 
-      show=False
+        shap_values[obs_idx], 
+        max_display=max_display, 
+        show=False
     )
-    plt.title(f'SHAP Values (sample prediction) - {model_name.capitalize()}, \
-              Case = {sample_output} | Pred = {sample_pred} (Prob = {sample_prob:.3f}, Thr = {threshold:.3f}))', fontsize=16)
+    plt.title(
+        f'SHAP Values (sample prediction) - {model_name.capitalize()}, \
+        Case = {sample_output} | Pred = {sample_pred} (Prob = {sample_prob:.3f}, Thr = {threshold:.3f}))',
+        fontsize=16
+    )
     plt.tight_layout()
     plt.show()
 
@@ -491,12 +587,23 @@ from sklearn.decomposition import PCA
 
 """PCA visualization for true and predicted"""
 """The function assumes that X data is scaled (with StandardScaler or MinMaxScaler etc)"""
-def pca_visualization(X, y_true, y_pred, colors_dict=None, class_names_dict=None, model_name='', 
-                      figsize=(13, 6), point_size=35, alpha=0.6, valid_or_test='Validation'):
+def pca_visualization(
+        X_train, 
+        X_new, 
+        y_new_true, 
+        y_new_pred, 
+        colors_dict=None, 
+        class_names_dict=None, 
+        model_name='', 
+        figsize=(13, 5.5), 
+        point_size=35, 
+        alpha=0.6, 
+        valid_or_test='Validation'
+    ):
     
-    n_classes = len( np.unique(np.concatenate([y_true, y_pred])) )
+    n_classes = len( np.unique(np.concatenate([y_new_true, y_new_pred])) )
 
-    if len(X) != len(y_true) or len(X) != len(y_pred) or len(y_true) != len(y_pred):
+    if len(X_new) != len(y_new_true) or len(X_new) != len(y_new_pred) or len(y_new_true) != len(y_new_pred):
         raise ValueError('X, y_true and y_pred should contain the same number of observations')
     if colors_dict is None or class_names_dict is None:
         raise ValueError('Provide colors_dict and class_names_dict')
@@ -504,21 +611,23 @@ def pca_visualization(X, y_true, y_pred, colors_dict=None, class_names_dict=None
         raise ValueError('Colors dict and class names dict must be defined as class label and corresponding color/class name')
 
     pca = PCA(n_components=2)
-    components = pca.fit_transform(X)
+    pca.fit(X_train)
+    components = pca.transform(X_new)
+
     fig, axes = plt.subplots(nrows=1, ncols=2, figsize=figsize)
     axes = axes.flatten() 
     decoded_classes = class_names_dict # decoded scoring categories for classes
 
     # Plotting PCA components for true and predicted classes
-    for i, (ax, y) in enumerate( zip(axes, [y_true, y_pred]) ):
+    for i, (ax, y) in enumerate( zip(axes, [y_new_true, y_new_pred]) ):
         colors = [colors_dict[label] for label in y]
         ax.scatter(
-          components[:, 0], 
-          components[:, 1], 
-          c=colors, 
-          edgecolor='w', 
-          s=point_size, 
-          alpha=alpha
+            components[:, 0], 
+            components[:, 1], 
+            c=colors, 
+            edgecolor='w', 
+            s=point_size, 
+            alpha=alpha
         )
         # Add grid lines ONLY at the origin (0,0) 
         ax.axvline(x=0, color='gray', alpha=0.8, zorder=0)
@@ -531,9 +640,9 @@ def pca_visualization(X, y_true, y_pred, colors_dict=None, class_names_dict=None
         # Legend
         for class_value, color in colors_dict.items():
             ax.scatter(
-              [], [], 
-              c=color, 
-              label=f'{class_value} - {decoded_classes[class_value]}'
+                [], [], 
+                c=color, 
+                label=f'{class_value} - {decoded_classes[class_value]}'
             )
         ax.legend(title='Target Class')
     fig.suptitle(f'PCA Visualization - {model_name}', fontsize=18)

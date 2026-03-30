@@ -5,20 +5,30 @@ from sklearn.base import BaseEstimator, ClassifierMixin
 
 """Class for Neural Network Classifier architecture"""
 class MLPClassifier(torch.nn.Module):
-    def __init__(self, input_size, hidden_layers_sizes=[64, 32, 16], n_classes=2, dropout_prob=0.2):
+    def __init__(
+            self, 
+            input_size, 
+            hidden_layers_sizes=[64, 32, 16], 
+            n_classes=2, 
+            dropout_prob=0.2
+        ):
         super().__init__()
         self.n_classes = n_classes
 
         layers = [torch.nn.Linear(in_features=input_size, out_features=hidden_layers_sizes[0])]
         for i in range( len(hidden_layers_sizes) - 1 ):
-            layers.append( torch.nn.BatchNorm1d(num_features=hidden_layers_sizes[i]) )
-            layers.append( torch.nn.ReLU() )
-            layers.append( torch.nn.Dropout(p=dropout_prob) )
-            layers.append( torch.nn.Linear(in_features=hidden_layers_sizes[i], out_features=hidden_layers_sizes[i+1]) )
-        layers.append( torch.nn.BatchNorm1d(num_features=hidden_layers_sizes[-1]) )
-        layers.append( torch.nn.ReLU() )
-        layers.append( torch.nn.Dropout(p=dropout_prob) )
-        layers.append ( torch.nn.Linear(in_features=hidden_layers_sizes[-1], out_features=n_classes) )
+            layers.extend([
+                torch.nn.BatchNorm1d(num_features=hidden_layers_sizes[i]),
+                torch.nn.ReLU(),
+                torch.nn.Dropout(p=dropout_prob),
+                torch.nn.Linear(in_features=hidden_layers_sizes[i], out_features=hidden_layers_sizes[i+1])
+            ])
+        layers.extend([
+            torch.nn.BatchNorm1d(num_features=hidden_layers_sizes[-1]),
+            torch.nn.ReLU(), 
+            torch.nn.Dropout(p=dropout_prob), 
+            torch.nn.Linear(in_features=hidden_layers_sizes[-1], out_features=n_classes) 
+        ])
 
         self.layer_stack = torch.nn.Sequential( *layers )
         # self.output_activation = torch.nn.Softmax(dim=1)
@@ -29,8 +39,22 @@ class MLPClassifier(torch.nn.Module):
         return x
 
 class ModelTrainer():
-    def __init__(self, model, X_train, y_train, X_valid, y_valid, class_weights=None, learning_rate=0.01, optimizer=None, 
-                 epochs=1000, patience=100, regularization_type=None, lambda_reg=0.1, random_state=68):
+    def __init__(
+            self, 
+            model, 
+            X_train, 
+            y_train, 
+            X_valid, 
+            y_valid, 
+            class_weights=None, 
+            learning_rate=0.01,
+            optimizer=None, 
+            epochs=1000, 
+            patience=100, 
+            regularization_type=None, 
+            lambda_reg=0.1, 
+            random_state=68
+        ):
         self.model = model
         self.X_train = X_train
         self.y_train = y_train
@@ -40,11 +64,15 @@ class ModelTrainer():
         self.loss_fn = torch.nn.CrossEntropyLoss( weight=self.class_weights )
         self.learning_rate = learning_rate
         # L2 regularization is implemented as weight decay in the optimizer
-        self.weight_decay = lambda_reg if (regularization_type is not None 
-                                           and regularization_type.lower() == 'l2') else 0.0 
-        self.optimizer = torch.optim.Adam(self.model.parameters(), 
-                                          lr=self.learning_rate, 
-                                          weight_decay=self.weight_decay) if optimizer is None else optimizer
+        self.weight_decay = lambda_reg if (
+            regularization_type is not None 
+            and regularization_type.lower() == 'l2'
+        ) else 0.0 
+        self.optimizer = torch.optim.Adam(
+            self.model.parameters(), 
+            lr=self.learning_rate, 
+            weight_decay=self.weight_decay
+        ) if optimizer is None else optimizer
         self.epochs = epochs
         self.patience = patience
         self.reg_type = regularization_type
@@ -136,8 +164,21 @@ from sklearn.model_selection import train_test_split
 
 """Wrapper class for PyTorch Neural Network to be compatible with scikit-learn framework"""
 class NeuralNetClassifier(BaseEstimator, ClassifierMixin):
-    def __init__(self, hidden_layers_sizes=[64, 32], dropout_prob=0.2, class_weights=None, learning_rate=0.001, optimizer=None,
-                 validation_split=0.25, regularization_type=None, lambda_reg=0.1, epochs=1000, patience=100, random_state=68, device='cpu'):
+    def __init__(
+            self, 
+            hidden_layers_sizes=[64, 32], 
+            dropout_prob=0.2, 
+            class_weights=None, 
+            learning_rate=0.001, 
+            optimizer=None,
+            validation_split=0.25, 
+            regularization_type=None, 
+            lambda_reg=0.1, 
+            epochs=1000, 
+            patience=100, 
+            random_state=68, 
+            device='cpu'
+        ):
         self.hidden_layers_sizes = hidden_layers_sizes
         self.dropout_prob = dropout_prob
         self.class_weights = class_weights
@@ -156,19 +197,21 @@ class NeuralNetClassifier(BaseEstimator, ClassifierMixin):
     def fit(self, X, y): #, X_valid, y_valid):
         input_size = X.shape[1]
         model = MLPClassifier(
-                    input_size=input_size,
-                    hidden_layers_sizes=self.hidden_layers_sizes,
-                    n_classes=len( y.unique() ),
-                    dropout_prob=self.dropout_prob
-                ).to( self.device )
+            input_size=input_size,
+            hidden_layers_sizes=self.hidden_layers_sizes,
+            n_classes=len( y.unique() ),
+            dropout_prob=self.dropout_prob
+        ).to( self.device )
 
         # optimizer = torch.optim.Adam(model.parameters(), lr=self.lr)
         # self.optimizer = optimizer
         
-        X_train, X_valid, y_train, y_valid = train_test_split(X, y, 
-                                                              test_size=self.validation_split, 
-                                                              random_state=self.random_state, 
-                                                              stratify=y)
+        X_train, X_valid, y_train, y_valid = train_test_split(
+            X, y, 
+            test_size=self.validation_split, 
+            random_state=self.random_state, 
+            stratify=y
+        )
         # Converting dataframes to tensors
         X_train_tensor = torch.tensor( X_train.to_numpy(), dtype=torch.float32, device=self.device )
         y_train_tensor = torch.tensor( y_train.to_numpy(), dtype=torch.long, device=self.device )
@@ -177,20 +220,20 @@ class NeuralNetClassifier(BaseEstimator, ClassifierMixin):
         
         # Training the model and saving the history (so the ModelTrainer instance with all the training information and best model parameters)
         trainer = ModelTrainer(
-                    model=model,
-                    X_train=X_train_tensor,
-                    y_train=y_train_tensor,
-                    X_valid=X_valid_tensor,
-                    y_valid=y_valid_tensor,
-                    class_weights=self.class_weights,
-                    learning_rate=self.learning_rate,
-                    optimizer=self.optimizer,
-                    epochs=self.epochs,
-                    patience=self.patience,
-                    regularization_type=self.regularization_type,
-                    lambda_reg=self.lambda_reg,
-                    random_state=self.random_state
-                )
+            model=model,
+            X_train=X_train_tensor,
+            y_train=y_train_tensor,
+            X_valid=X_valid_tensor,
+            y_valid=y_valid_tensor,
+            class_weights=self.class_weights,
+            learning_rate=self.learning_rate,
+            optimizer=self.optimizer,
+            epochs=self.epochs,
+            patience=self.patience,
+            regularization_type=self.regularization_type,
+            lambda_reg=self.lambda_reg,
+            random_state=self.random_state
+        )
         trainer.train()
 
         self.history = trainer
