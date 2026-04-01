@@ -171,7 +171,7 @@ class NeuralNetClassifier(BaseEstimator, ClassifierMixin):
             class_weights=None, 
             learning_rate=0.001, 
             optimizer=None,
-            validation_split=0.25, 
+            validation_split=0.2, 
             regularization_type=None, 
             lambda_reg=0.1, 
             epochs=1000, 

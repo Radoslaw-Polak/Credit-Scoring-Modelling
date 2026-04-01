@@ -243,6 +243,7 @@ def find_optimal_threshold(
         y_true, 
         y_proba, 
         beta=None, 
+        plot=True,
         figsize=(6, 4.5)
     ):
     precisions, recalls, thresholds = precision_recall_curve(y_true, y_proba)
@@ -282,33 +283,133 @@ def find_optimal_threshold(
     optimal_idx = np.argmax(fbeta_scores)
     best_threshold = thresholds[optimal_idx] 
     best_fbeta_score = fbeta_scores[optimal_idx]
-
-    print(f'beta = {beta}, optimal_idx = {optimal_idx}')
     
     # Plotting
-    plt.figure(figsize=figsize)
-    plt.plot(
-        thresholds, 
-        fbeta_scores, 
-        color='black', 
-        label=f'Fbeta-score [beta = {beta:.2f}]'
-    )
-    plt.scatter(
-        x=best_threshold, 
-        y=best_fbeta_score,
-        color='red',
-        marker='o',
-        label=f'Best threshold [{best_threshold:.3f}]'
-    )
-    plt.xlabel('Threshold', fontsize=12)
-    plt.ylabel(f'F{beta:.2f}-score', fontsize=12)
-    plt.title("Obtaining best threshold", fontsize=14)
-    plt.grid(linewidth=0.4, alpha=0.7)
-    plt.legend(loc='center right')
-    plt.tight_layout()
-    plt.show()
-    
+    if plot:
+      plt.figure(figsize=figsize)
+      plt.plot(
+          thresholds, 
+          fbeta_scores, 
+          color='black', 
+          label=f'Fbeta-score [beta = {beta:.2f}]'
+      )
+      plt.scatter(
+          x=best_threshold, 
+          y=best_fbeta_score,
+          color='red',
+          marker='o',
+          label=f'Best threshold [{best_threshold:.3f}]'
+      )
+      plt.xlabel('Threshold', fontsize=12)
+      plt.ylabel(f'F{beta:.2f}-score', fontsize=12)
+      plt.title("Obtaining best threshold", fontsize=14)
+      plt.grid(linewidth=0.4, alpha=0.7)
+      plt.legend(loc='center right')
+      plt.tight_layout()
+      plt.show()
+      
     return best_threshold, best_fbeta_score, beta
+
+from sklearn.model_selection import StratifiedKFold
+
+def model_cross_validation(
+        model,
+        X,
+        y,
+        k_folds=5,
+        beta_param=None,
+        model_name='',
+        random_state=68,
+        shuffle=True,
+        verbose=True,
+        plot=False
+    ):
+
+    print(f"Cross validation - {model_name}")
+
+    skf = StratifiedKFold(
+        n_splits=k_folds,
+        shuffle=shuffle,
+        random_state=random_state
+    )
+
+    thresholds_per_fold = []
+    best_scores_per_fold = []
+    fbetas_per_fold = []
+    recalls_per_fold = []
+
+    fold_idx = 1
+
+    for train_idx, valid_idx in skf.split(X, y):
+
+        print(f'\nFOLD {fold_idx}')
+        if isinstance(X, pd.DataFrame):
+            X_train, X_valid = X.iloc[train_idx], X.iloc[valid_idx]
+            y_train, y_valid = y.iloc[train_idx], y.iloc[valid_idx]
+        else:
+            X_train, X_valid = X[train_idx], X[valid_idx]
+            y_train, y_valid = y[train_idx], y[valid_idx]
+
+        from sklearn.base import clone
+        model_fold = clone(model)
+
+        # training
+        model_fold.fit(X_train, y_train)
+
+        # probabilities prediciton
+        y_proba = model_fold.predict_proba(X_valid)[:, 1]
+
+        # obtaining best threshold and score for fold
+        best_threshold, best_score, beta = find_optimal_threshold(
+            y_true=y_valid,
+            y_proba=y_proba,
+            beta=beta_param,
+            plot=plot
+        )
+
+        y_pred = np.where(y_proba > best_threshold, 1, 0)
+        fbeta = fbeta_score(y_valid, y_pred, beta=beta)
+        recall = recall_score(y_valid, y_pred)
+
+        thresholds_per_fold.append(best_threshold)
+        best_scores_per_fold.append(best_score)
+        fbetas_per_fold.append(fbeta)
+        recalls_per_fold.append(recall)
+
+        if verbose:
+            print(f"Fold {fold_idx}: threshold={best_threshold:.3f}, score={best_score:.4f}")
+
+        fold_idx += 1
+
+    fbeta_colname = f"F{beta:.2f}-score"
+    results = {
+        "Fold": np.arange(1, k_folds + 1, 1),
+        "Best score": best_scores_per_fold,
+        "Thresholds": thresholds_per_fold,
+        fbeta_colname: fbetas_per_fold,
+        "Recall": recalls_per_fold
+    }
+    df_results = pd.DataFrame(results)
+
+    # Aggregated results
+    agg_results = {
+      "avg_thr": df_results['Thresholds'].mean(),
+      "med_thr": df_results['Thresholds'].median(),
+      "std_thr": df_results['Thresholds'].std(),
+      "avg_fbeta": df_results[fbeta_colname].mean(),
+      "med_fbeta": df_results[fbeta_colname].median(),
+      "std_fbeta": df_results[fbeta_colname].std(),
+      "avg_rec": df_results['Recall'].mean(),
+      "med_rec": df_results['Recall'].median(),
+      "std_rec": df_results['Recall'].std()
+    }
+    # It is 1 row DataFrame
+    df_agg_results = pd.DataFrame(
+        agg_results,
+        index=[0]
+    )
+    
+    return df_results, df_agg_results, beta
 
 """Confusion matrices"""
 def display_confusion_matrix(
@@ -483,18 +584,21 @@ def plot_feature_importances(
 
 
 import shap 
+from sklearn.model_selection import train_test_split
 
 """Shapley values analysis and visualization for explainability"""
 def plot_shap_values(
         model, 
         model_name, 
         X_train, 
+        y_train,
         X_valid, 
         y_valid, 
         max_display=15, 
         sample_class_label=1, 
         threshold=0.5, 
-        random_state=68
+        random_state=68,
+        sample_size=0.05
     ):
     try:
         print(f'Calculating SHAP values for {model_name.capitalize()} model ...')
@@ -507,13 +611,34 @@ def plot_shap_values(
     model_name = model_name.lower()
     X_val, y_val = X_valid.copy(), y_valid.copy()
 
+    # For speeding up the process of calculating SHAP values using only sample_size * 100 % of validation data
+    X_train_sample, _, y_train_sample, _ = train_test_split(
+        X_train,
+        y_train,
+        train_size=sample_size,
+        stratify=y_train,
+        random_state=random_state
+    )
+    X_train_sample = X_train_sample.reset_index(drop=True)
+    y_train_sample = y_train_sample.reset_index(drop=True)
+    
+    X_val_sample, _, y_val_sample, _ = train_test_split(
+        X_val,
+        y_val,
+        train_size=sample_size,
+        stratify=y_val,
+        random_state=random_state
+    )
+    X_val_sample = X_val_sample.reset_index(drop=True)
+    y_val_sample = y_val_sample.reset_index(drop=True)
+
     if model_name == 'logistic regression':
-        explainer = shap.Explainer(
+        explainer = shap.Explainer( 
             model=model, 
-            masker=X_train, 
+            masker=X_train_sample, 
             seed=random_state
         )
-        shap_values = explainer(X_valid)   
+        shap_values = explainer(X_val_sample)   
         print((shap_values, type(shap_values), shap_values.shape))
 
     elif model_name in ['xgboost', 'random forest']:
@@ -521,40 +646,34 @@ def plot_shap_values(
             model=model, 
             approximate=True
         )
-        # For speeding up the process of calculating SHAP values for Random Forest model, using only 10% of validation data
-        n_samples = int(0.2 * len(X_valid))
-        X_val = X_val.sample(n=n_samples, random_state=random_state) if model_name == 'random forest' else X_val
-        y_val = y_val.sample(n=n_samples, random_state=random_state) if model_name == 'random forest' else y_val
-        shap_values = explainer(X_val)
+
+        shap_values = explainer(X_val_sample)
         print((shap_values, type(shap_values), shap_values.shape))
         # For Random Forest shap_values has 3 dimensions where last dim corresponds to class so have to 
         # select specific class (in this case class 1 - default)
         shap_values = shap_values[:, :, 1] if model_name == 'random forest' else shap_values
 
     elif model_name == 'neural network':        
-        masker = shap.maskers.Independent(X_train)
+        masker = shap.maskers.Independent(X_train_sample)
         explainer = shap.Explainer(
             model=model.predict_proba,
             masker=masker,
             seed=random_state
         )
 
-        shap_values = explainer(X_valid)
+        shap_values = explainer(X_val_sample)
         print((shap_values, type(shap_values), shap_values.shape))
         # shap_values for class 1 (default case), for explainer with masker it returns list of arrays for each class
         shap_values = shap_values[:, :, 1]
  
-    # resetting indexes
-    X_val = X_val.reset_index(drop=True)
-    y_val = y_val.reset_index(drop=True)
     # getting random observation index where class_label = positive class (default = 1)
     np.random.seed(random_state)
-    obs_idx = np.random.choice( np.where(y_val == sample_class_label)[0], size=1 )[0]
+    obs_idx = np.random.choice( np.where(y_val_sample == sample_class_label)[0], size=1 )[0]
     # using sample input for waterfall plot, transpose (T) for proper shape
     sample_input = pd.DataFrame(
-      data=X_val.iloc[obs_idx, :]
+      data=X_val_sample.iloc[obs_idx, :]
     ).T
-    sample_output = y_val.iloc[obs_idx]
+    sample_output = y_val_sample.iloc[obs_idx]
     # get sample probability for positive class (1)
     sample_prob = model.predict_proba(sample_input)[0, 1] 
     sample_pred = np.where( sample_prob > threshold, 1, 0)
