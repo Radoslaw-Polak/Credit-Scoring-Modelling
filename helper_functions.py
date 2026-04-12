@@ -14,7 +14,7 @@ def numeric_describe(df):
     numerical_data_describe.loc['kurtosis'] = numerical_data.kurtosis()
     return numerical_data, numerical_data_describe
     
-"""adjusting number of rows for subplot"""
+"""Adjusting number of rows for subplot"""
 def subplot_shape(df, subplot_cols=3):
     df_ncols = df.columns.size
     if df_ncols % subplot_cols == 0:
@@ -22,7 +22,7 @@ def subplot_shape(df, subplot_cols=3):
     else:
         return (df_ncols // subplot_cols + 1, subplot_cols)
 
-"""function to draw distributions for variables (columns)"""
+"""Function to draw distributions for variables (columns)"""
 def draw_distribution(
         df, 
         subplot_size, 
@@ -44,6 +44,7 @@ def draw_distribution(
         top_frequent = ''
         data = df[col].dropna().reset_index(drop=True)
         val_counts = data.value_counts()
+        grid_axis = 'y'
         if data.dtype == 'object':
             if len(val_counts.index) <= barplot_max_cols / 2:
                 sns.barplot(
@@ -53,6 +54,17 @@ def draw_distribution(
                     color=plot_color,
                     edgecolor='black'
                 )
+            elif len(val_counts.index) - barplot_max_cols <= 50 - barplot_max_cols:
+                sns.barplot(
+                    x=val_counts.values,
+                    y=val_counts.index,  
+                    ax=ax, 
+                    color=plot_color,
+                    orient='h',
+                    height=0.5,
+                    edgecolor='black'
+                )
+                grid_axis = 'x'
             else:
                 top_frequent = f" - TOP {top_n_freq} categories"
                 sns.barplot(
@@ -87,7 +99,7 @@ def draw_distribution(
         ax.set_xlabel('')
         ax.set_ylabel('')
         ax.set_axisbelow(True)
-        ax.grid(linewidth=0.8, axis='y')
+        ax.grid(linewidth=0.8, axis=grid_axis)
         distribution_type[col] = plot_type
         # Counter for drawing charts process
         print(f'\rDrawing distribution plots [{iter+1}/{num_cols}]', end='', flush=True)
@@ -99,7 +111,7 @@ def draw_distribution(
     plt.tight_layout()
     plt.show()
 
-"""function to determine number of outlier values in a dataframe column"""
+"""Function to determine number of outlier values in a dataframe column"""
 def number_of_outliers(data):
     Q1 = data.quantile(0.25)
     Q3 = data.quantile(0.75)
@@ -109,7 +121,7 @@ def number_of_outliers(data):
     outliers = data[(data < lower_bound) | (data > upper_bound)]
     return len(outliers)
 
-"""function for drawing boxplots"""
+"""Function for drawing boxplots"""
 def draw_boxplots(
         df, 
         subplot_size=(16, 10), 
@@ -143,8 +155,8 @@ def draw_boxplots(
 def handle_outliers(
         df, 
         threshold=1.5, 
-        remove=False, 
-        replace_val='mean'
+        remove=True, 
+        replace_val=''
     ):
     df_cleaned = df.copy()
     df_numeric = df_cleaned.select_dtypes(include=['int32', 'float32', 'int64', 'float64'])
@@ -180,33 +192,108 @@ def handle_outliers(
 
         return df_cleaned
 
-
 from statsmodels.stats.outliers_influence import variance_inflation_factor
 from statsmodels.tools.tools import add_constant
 
-"""creating linear models for every independent variable between other independent variables"""
+"""Creating linear models for every independent variable between other independent variables"""
 def VIF(numerical_data):    
     X = numerical_data
     X = add_constant(X)
 
-    VIFs = pd.Series(
-      [variance_inflation_factor(X.values, i) for i in range(X.shape[1])],
-      index=X.columns
+    VIFs = pd.DataFrame(
+      data=[variance_inflation_factor(X.values, i) for i in range(X.shape[1])],
+      index=X.columns,
+      columns=['VIF']
     )
-    return VIFs
+    # Returning VIF values sorted in descending order
+    return VIFs[VIFs.index != 'const'].sort_values(by='VIF', ascending=False)
 
+"""
+Checking linearity of logit for continuous variables, if p-value of the regression is less than 0.05 then the relationship is non-linear
+In the end didn't use it, it would be more useful for logistic model from statsmodels in context of coefficients interpretation, significance 
+and confidence intervals, but for sklearn logistic regression it is not that useful, so I decided to use it only for EDA purposes and not for feature engineering
+In the case of prediciton based analysis the scikit-learn logistic regression model is much more commonly used, also the fact that I have storngly imbalanced data
+and I am using class_weight='balanced' parameter in logistic regression model, so the linearity of logit is not that important for the model performance, 
+but it is still good to check it for EDA purposes and to have better understanding of the data and relationships between features and target variable.
+"""
+def check_logit_linearity(X_cont, y, n_bins=10, target_col='target', plot=False):
+    """
+    Sprawdza liniowość logitów dla zmiennych ciągłych.
+    Zwraca słownik z wykresami i flagami naruszenia założenia.
+    """
+    df = pd.concat([X_cont, y], axis=1)
+    results = {}
+    
+    for col in X_cont.columns:
+        # Bins
+        df_temp = df[[col, target_col]].copy()
+        df_temp[f'{col}_bin'] = pd.qcut(df_temp[col], q=n_bins, duplicates='drop')
+        
+        # Calculating empirical log-odds in each bin
+        bin_stats = df_temp.groupby(f'{col}_bin')[target_col].agg(['mean', 'count'])
+        bin_stats['p'] = bin_stats['mean']
+        # We avoid log(0) i log(1)
+        eps = 1e-5
+        bin_stats['log_odds'] = np.log((bin_stats['p'] + eps) / (1 - bin_stats['p'] + eps))
+        bin_stats['bin_center'] = bin_stats.index.map(lambda x: x.mid)
+        
+        # basic linear regression: log_odds ~ bin_center
+        from scipy import stats
+        slope, intercept, r_value, p_value, std_err = stats.linregress(
+            bin_stats['bin_center'], bin_stats['log_odds']
+        )
+        
+        is_linear = p_value < 0.05  # If p < 0.05 then the relationship is non-linear
+        
+        results[col] = {
+            'p_value_lin': p_value,
+            'is_linear': not is_linear,
+            'bin_stats': bin_stats
+        }
+        
+        # Plot
+        if plot:
+            plt.figure(figsize=(6, 4))
+            sns.scatterplot(
+                x=bin_stats['bin_center'], 
+                y=bin_stats['log_odds'], 
+                size=bin_stats['count'], 
+                sizes=(50, 300), 
+                alpha=0.7
+            )
+            sns.regplot(
+                x=bin_stats['bin_center'], 
+                y=bin_stats['log_odds'], 
+                scatter=False, 
+                color='red', 
+                ci=None
+            )
+            plt.axhline(0, color='gray', linestyle='--', alpha=0.5)
+            plt.title(f'{col} vs Log-Odds (p={p_value:.3f})')
+            plt.xlabel(col)
+            plt.ylabel('Empirical Log-Odds')
+            plt.grid(True, alpha=0.3)
+            plt.show()
+        
+    return results
 
 from sklearn.preprocessing import OneHotEncoder
 
 """Encodes categorical columns in the DataFrame using OneHotEncoder."""
-def encode_categoric_data(df):
-    categorical_columns = df.loc[:, df.dtypes == 'object'].columns
+def encode_categoric_data(df, ohe=None):
+    categorical_columns = df.select_dtypes(include=['object', 'category']).columns
     encoding_values = df[categorical_columns].nunique().values
-    # drop='first' to avoid dummy variable trap, dropping first category in each categorical column
-    ohe = OneHotEncoder(sparse_output=False, drop='first') 
+    # Fitting new OneHotEncoder if not provided, otherwise using the provided one (for test data encoding)
+    if ohe is None:
+        # drop='first' to avoid dummy variable trap, dropping first category in each categorical column and 
+        # handle_unknown='ignore' to avoid errors when test data contains categories not present in training data
+        ohe = OneHotEncoder(sparse_output=False, drop='first', handle_unknown='ignore')
+        # Fit and transform the categorical columns (for training data encoding)
+        one_hot_encoded = ohe.fit_transform(df[categorical_columns])
+    else:
+        # Transform the categorical columns using the provided OneHotEncoder (for test data encoding)
+        one_hot_encoded = ohe.transform(df[categorical_columns])
 
-    # Fit and transform the categorical columns
-    one_hot_encoded = ohe.fit_transform(df[categorical_columns])
     # Create a DataFrame with the one-hot encoded columns
     one_hot_df = pd.DataFrame(
         one_hot_encoded, 
@@ -227,7 +314,7 @@ def encode_categoric_data(df):
     for i, (cat_col, encoded_vals) in enumerate( zip(categorical_columns, encoding_values) ):
         print(f"{i+1}) {cat_col} - encoded {encoded_vals} categories [reference category: '{ref_categories[cat_col]}']")
     
-    return df_encoded
+    return df_encoded, ohe
 
 
 from sklearn.metrics import confusion_matrix, ConfusionMatrixDisplay, accuracy_score, precision_score, recall_score, \
@@ -317,7 +404,7 @@ def model_cross_validation(
         X,
         y,
         k_folds=5,
-        beta_param=None,
+        fbeta_param=None,
         model_name='',
         random_state=68,
         shuffle=True,
@@ -335,8 +422,10 @@ def model_cross_validation(
 
     thresholds_per_fold = []
     best_scores_per_fold = []
-    fbetas_per_fold = []
+    precisions_per_fold = []
     recalls_per_fold = []
+    fbetas_per_fold = []
+    accuracies_per_fold = []
 
     fold_idx = 1
 
@@ -363,18 +452,22 @@ def model_cross_validation(
         best_threshold, best_score, beta = find_optimal_threshold(
             y_true=y_valid,
             y_proba=y_proba,
-            beta=beta_param,
+            beta=fbeta_param,
             plot=plot
         )
 
         y_pred = np.where(y_proba > best_threshold, 1, 0)
-        fbeta = fbeta_score(y_valid, y_pred, beta=beta)
+        precision = precision_score(y_valid, y_pred)
         recall = recall_score(y_valid, y_pred)
+        fbeta = fbeta_score(y_valid, y_pred, beta=beta)
+        accuracy = accuracy_score(y_valid, y_pred)
 
         thresholds_per_fold.append(best_threshold)
         best_scores_per_fold.append(best_score)
-        fbetas_per_fold.append(fbeta)
+        precisions_per_fold.append(precision)
         recalls_per_fold.append(recall)
+        fbetas_per_fold.append(fbeta)
+        accuracies_per_fold.append(accuracy)
 
         if verbose:
             print(f"Fold {fold_idx}: threshold={best_threshold:.3f}, score={best_score:.4f}")
@@ -385,43 +478,45 @@ def model_cross_validation(
     results = {
         "Fold": np.arange(1, k_folds + 1, 1),
         "Best score": best_scores_per_fold,
-        "Thresholds": thresholds_per_fold,
+        "Threshold": thresholds_per_fold,
+        "Precision": precisions_per_fold,
+        "Recall": recalls_per_fold,
         fbeta_colname: fbetas_per_fold,
-        "Recall": recalls_per_fold
+        "Accuracy": accuracies_per_fold
     }
     df_results = pd.DataFrame(results)
 
     # Aggregated results
     agg_results = {
-      "avg_thr": df_results['Thresholds'].mean(),
-      "med_thr": df_results['Thresholds'].median(),
-      "std_thr": df_results['Thresholds'].std(),
-      "avg_fbeta": df_results[fbeta_colname].mean(),
-      "med_fbeta": df_results[fbeta_colname].median(),
-      "std_fbeta": df_results[fbeta_colname].std(),
-      "avg_rec": df_results['Recall'].mean(),
-      "med_rec": df_results['Recall'].median(),
-      "std_rec": df_results['Recall'].std()
+      "avg": df_results[['Threshold', 'Precision', 'Recall', fbeta_colname, 'Accuracy']].mean(),
+      "median": df_results[['Threshold', 'Precision', 'Recall', fbeta_colname, 'Accuracy']].median(),
+      "std": df_results[['Threshold', 'Precision', 'Recall', fbeta_colname, 'Accuracy']].std()
     }
     # It is 1 row DataFrame
     df_agg_results = pd.DataFrame(
         agg_results,
-        index=[0]
+        index=agg_results["avg"].index,
+        columns=agg_results.keys()
     )
     
     return df_results, df_agg_results, beta
 
+from string import capwords
 """Confusion matrices"""
 def display_confusion_matrix(
         y1_true, 
         y1_pred, 
         y2_true, 
         y2_pred, 
-        title='', 
+        # title='', 
+        model_name='',
         cmap='cividis', 
         compare=['Train', 'Validation'], 
         figsize=(15, 6)
     ):
+    
+    if not isinstance(model_name, str) or not isinstance(compare, list) or len(compare) != 2:
+        raise ValueError("Model_name should be a string and compare should be a list of two strings (e.g., ['Train', 'Validation']).")
     
     cm1 = confusion_matrix(y_true=y1_true, y_pred=y1_pred)
     cm2 = confusion_matrix(y_true=y2_true, y_pred=y2_pred)
@@ -431,15 +526,17 @@ def display_confusion_matrix(
     cms_disp = [cm1_disp, cm2_disp]
 
     fig, axes = plt.subplots(1, 2, figsize=figsize) 
-    axes = axes.flatten();
+    axes = axes.flatten()
+    model_name = capwords(model_name)
+
     for i, (ax, cm) in enumerate( zip(axes, cms_disp) ):
         cm.plot(ax=ax, cmap=cmap)
-        cm_title = compare[i] 
+        cm_title = f'{model_name} - {compare[i]}' 
         ax.set_xlabel('Predicted target')
         ax.set_ylabel('True target')
         ax.set_title(cm_title)
         ax.invert_yaxis() # Invert y-axis for better readability
-    fig.suptitle(t=title, fontsize=15)
+    fig.suptitle(t=f'Confusion Matrices - {model_name} | {compare[0]} vs {compare[1]}', fontsize=13)
     plt.tight_layout()
     plt.show()
     return cm1, cm2
@@ -450,7 +547,8 @@ def quality_metrics(
         y_pred, 
         y_probs=None, 
         pos_class_label=1, 
-        label='Test data', 
+        label='Test data',
+        plot=True, 
         pr_curve_figsize=(6, 5), 
         pr_curve_title=''
     ):
@@ -459,7 +557,7 @@ def quality_metrics(
     print(f"{label}:")
     print(f"Accuracy: {accuracy_score(y_true=y_true, y_pred=y_pred):.3f}")
     
-    """For multiclass classification, precision, recall and F1-score are calculated for each class"""
+    # For multiclass classification, precision, recall and F1-score are calculated for each class"""
     old_format = pd.options.display.float_format
     pd.options.display.float_format = '{:.3f}'.format
     score_results = pd.DataFrame(
@@ -473,8 +571,8 @@ def quality_metrics(
     ).round(decimals=3) 
     print(score_results)
 
-    # for binary classification only - draw precision-recall curve
-    if n_classes == 2 and (y_probs != None).all():
+    # For binary classification only - draw precision-recall curve
+    if plot and n_classes == 2 and (y_probs != None).all():
         precisions, recalls, _ = precision_recall_curve(y_true=y_true, y_score=y_probs, pos_label=pos_class_label) # y_probs[:, 1]
         avg_precision_score = average_precision_score(y_true=y_true, y_score=y_probs)
         plt.figure(figsize=pr_curve_figsize)
@@ -559,7 +657,7 @@ def plot_feature_importances(
         orient='h'
     )
   
-    # for readability, if label is negative still show it on the right side of the bar
+    # For readability, if label is negative still show it on the right side of the bar
     for container in ax.containers:
         for rect in container:
             value = rect.get_width()
@@ -644,7 +742,7 @@ def plot_shap_values(
     elif model_name in ['xgboost', 'random forest']:
         explainer = shap.TreeExplainer(
             model=model, 
-            approximate=True
+            approximate=True,
         )
 
         shap_values = explainer(X_val_sample)
@@ -753,8 +851,8 @@ def pca_visualization(
         ax.axhline(y=0, color='gray', alpha=0.8, zorder=0)
         title = f'{valid_or_test} data' if i == 0 else 'Predicted classes'
         ax.set_title(title)
-        ax.set_xlabel('Principal Component 1')
-        ax.set_ylabel('Principal Component 2')
+        ax.set_xlabel(f'PC1 ({pca.explained_variance_ratio_[0]*100:.2f}%)', fontsize=12)
+        ax.set_ylabel(f'PC2 ({pca.explained_variance_ratio_[1]*100:.2f}%)', fontsize=12)
 
         # Legend
         for class_value, color in colors_dict.items():
