@@ -12,7 +12,7 @@ def numeric_describe(df):
     numerical_data_describe.loc['median'] = numerical_data.median()
     numerical_data_describe.loc['skew'] = numerical_data.skew()
     numerical_data_describe.loc['kurtosis'] = numerical_data.kurtosis()
-    return numerical_data, numerical_data_describe
+    return numerical_data, numerical_data_describe.transpose()
     
 """Adjusting number of rows for subplot"""
 def subplot_shape(df, subplot_cols=3):
