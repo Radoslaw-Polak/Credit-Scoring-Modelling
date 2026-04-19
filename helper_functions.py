@@ -96,8 +96,8 @@ def draw_distribution(
                 )
                 plot_type = 'histogram'
         ax.set_title(f"{col}{top_frequent}")
-        ax.set_xlabel('')
-        ax.set_ylabel('')
+        ax.set_xlabel('Value')
+        ax.set_ylabel('Count')
         ax.set_axisbelow(True)
         ax.grid(linewidth=0.8, axis=grid_axis)
         distribution_type[col] = plot_type
@@ -424,6 +424,8 @@ def model_cross_validation(
     best_scores_per_fold = []
     precisions_per_fold = []
     recalls_per_fold = []
+    pr_auc_per_fold = []
+    f1s_per_fold = []
     fbetas_per_fold = []
     accuracies_per_fold = []
 
@@ -441,7 +443,7 @@ def model_cross_validation(
 
         from sklearn.base import clone
         model_fold = clone(model)
-
+        print(f"Model cloned: {model_fold}")
         # training
         model_fold.fit(X_train, y_train)
 
@@ -459,6 +461,8 @@ def model_cross_validation(
         y_pred = np.where(y_proba > best_threshold, 1, 0)
         precision = precision_score(y_valid, y_pred)
         recall = recall_score(y_valid, y_pred)
+        pr_auc = average_precision_score(y_valid, y_proba)
+        f1 = f1_score(y_valid, y_pred)
         fbeta = fbeta_score(y_valid, y_pred, beta=beta)
         accuracy = accuracy_score(y_valid, y_pred)
 
@@ -466,6 +470,8 @@ def model_cross_validation(
         best_scores_per_fold.append(best_score)
         precisions_per_fold.append(precision)
         recalls_per_fold.append(recall)
+        pr_auc_per_fold.append(pr_auc)
+        f1s_per_fold.append(f1)
         fbetas_per_fold.append(fbeta)
         accuracies_per_fold.append(accuracy)
 
@@ -474,13 +480,15 @@ def model_cross_validation(
 
         fold_idx += 1
 
-    fbeta_colname = f"F{beta:.2f}-score"
+    fbeta_colname = f"F{beta}-score"
     results = {
         "Fold": np.arange(1, k_folds + 1, 1),
         "Best score": best_scores_per_fold,
         "Threshold": thresholds_per_fold,
         "Precision": precisions_per_fold,
         "Recall": recalls_per_fold,
+        "PR AUC": pr_auc_per_fold,
+        "F1-score": f1s_per_fold,
         fbeta_colname: fbetas_per_fold,
         "Accuracy": accuracies_per_fold
     }
@@ -488,14 +496,14 @@ def model_cross_validation(
 
     # Aggregated results
     agg_results = {
-      "avg": df_results[['Threshold', 'Precision', 'Recall', fbeta_colname, 'Accuracy']].mean(),
-      "median": df_results[['Threshold', 'Precision', 'Recall', fbeta_colname, 'Accuracy']].median(),
-      "std": df_results[['Threshold', 'Precision', 'Recall', fbeta_colname, 'Accuracy']].std()
+      "Mean": df_results[['Threshold', 'Precision', 'Recall', 'PR AUC', 'F1-score', fbeta_colname, 'Accuracy']].mean(),
+      "Median": df_results[['Threshold', 'Precision', 'Recall', 'PR AUC', 'F1-score', fbeta_colname, 'Accuracy']].median(),
+      "Std": df_results[['Threshold', 'Precision', 'Recall', 'PR AUC', 'F1-score', fbeta_colname, 'Accuracy']].std()
     }
     # It is 1 row DataFrame
     df_agg_results = pd.DataFrame(
         agg_results,
-        index=agg_results["avg"].index,
+        index=agg_results["Mean"].index,
         columns=agg_results.keys()
     )
     
@@ -536,7 +544,7 @@ def display_confusion_matrix(
         ax.set_ylabel('True target')
         ax.set_title(cm_title)
         ax.invert_yaxis() # Invert y-axis for better readability
-    fig.suptitle(t=f'Confusion Matrices - {model_name} | {compare[0]} vs {compare[1]}', fontsize=13)
+    # fig.suptitle(t=f'Confusion Matrices - {model_name} | {compare[0]} vs {compare[1]}', fontsize=13)
     plt.tight_layout()
     plt.show()
     return cm1, cm2
@@ -865,3 +873,109 @@ def pca_visualization(
     fig.suptitle(f'PCA Visualization - {model_name}', fontsize=18)
     plt.tight_layout()
     plt.show()
+
+
+# !pip install fpdf
+from fpdf import FPDF
+""" Helper function to convert a DataFrame to a PDF with a table of controlled width, handling long text and many columns by scaling and cutting text. """
+def dataframe_to_pdf(df, filename, title="Tabela statystyk", max_rows=30, max_table_width=190, int_values=False):
+    """
+    Converts a DataFrame to a PDF with a table of controlled width.
+    Args:
+        df: DataFrame to export
+        filename: output file name
+        title: table title
+        max_rows: max number of rows to display (default 30)
+        max_table_width: max width of the entire table in mm (default 190mm)
+    """
+    pdf = FPDF()
+    pdf.set_margins(10, 10, 10)
+    pdf.add_page()
+    
+    # Title
+    pdf.set_font('Times', 'B', 14)
+    pdf.cell(0, 10, title, 0, 1, 'C')
+    pdf.ln(5)
+    
+    # Limiting the number of rows and preparing data for display
+    if len(df) > max_rows:
+        df_display = df.head(max_rows)
+        warning = f"Pokazano pierwsze {max_rows} z {len(df)} wierszy"
+    else:
+        df_display = df
+        warning = ""
+        
+    columns = df_display.columns.tolist()
+    index = df_display.index.tolist()
+    
+    # Calcuating column widths with a limit
+    pdf.set_font('Times', '', 6)
+    
+    # Width of the first column (dynamic)
+    longest_name = max(["Feature"] + [str(i) for i in index], key=len)
+    first_col_width = pdf.get_string_width(longest_name) + 4
+    
+    # Width of other columns - dynamic but with a limit
+    col_widths = []
+    for col in columns:
+        # Check the longest value in the column (including the header) to determine needed width
+        col_values = [str(col)] + [str(df_display.loc[idx, col])[:20] for idx in index]
+        longest_value = max(col_values, key=len)
+        needed_width = pdf.get_string_width(longest_value) + 4
+        
+        # Use the smaller of the needed width or a reasonable maximum
+        col_widths.append(min(needed_width, 35))  # max 35mm na kolumnę
+    
+    # Calculate total table width
+    total_width = first_col_width + sum(col_widths)
+    
+    # If table is too wide, scale down all columns proportionally
+    if total_width > max_table_width:
+        scale_factor = max_table_width / total_width
+        first_col_width *= scale_factor
+        col_widths = [w * scale_factor for w in col_widths]
+        total_width = max_table_width
+    
+    # Centering table
+    page_width = pdf.w - 20  # użyteczna szerokość strony
+    left_margin = (page_width - total_width) / 2 + 10  # +10 to margines lewy strony
+    
+    # Drawing header
+    pdf.set_font('Times', 'B', 7)
+    pdf.set_x(left_margin)
+    pdf.cell(first_col_width, 6, 'Feature', border=1, align='C')
+    for i, col in enumerate(columns):
+        pdf.cell(col_widths[i], 6, str(col), border=1, align='C')
+    pdf.ln()
+    
+    # Data drawing
+    pdf.set_font('Times', '', 6)
+    for idx in index:
+        pdf.set_x(left_margin)
+        pdf.cell(first_col_width, 5, str(idx)[:25], border=1, align='L')
+        
+        for i, col in enumerate(columns):
+            value = df_display.loc[idx, col]
+            if int_values and isinstance(value, (int, np.integer)):
+                cell_text = f'{value:.0f}'
+            elif isinstance(value, (float, np.number)):
+                cell_text = f'{value:,.2f}' if abs(value) < 100 else f'{value:,.0f}'
+            else:
+                cell_text = str(value)
+            
+            # Cutting if too long
+            if pdf.get_string_width(cell_text) > col_widths[i] - 2:
+                max_chars = int((col_widths[i] - 2) / pdf.get_string_width('M') * 1.2)
+                cell_text = cell_text[:max_chars]
+            
+            pdf.cell(col_widths[i], 5, cell_text, border=1, align='C')
+        pdf.ln()
+        
+    # Information about row limit
+    if warning:
+        pdf.ln(4)
+        pdf.set_font('Times', 'I', 8)
+        pdf.cell(0, 5, warning, 0, 1)
+        
+    pdf.output(filename)
+    print(f"PDF generated: {filename} (table width: {total_width:.1f}mm)")

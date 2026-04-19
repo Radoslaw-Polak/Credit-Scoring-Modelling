@@ -2,6 +2,7 @@ import torch
 import copy
 import numpy as np
 from sklearn.base import BaseEstimator, ClassifierMixin
+from sklearn.metrics import average_precision_score
 
 """Class for Neural Network Classifier architecture"""
 class MLPClassifier(torch.nn.Module):
@@ -70,8 +71,8 @@ class ModelTrainer():
         ) else 0.0 
         self.optimizer = torch.optim.Adam(
             self.model.parameters(), 
-            lr=self.learning_rate, 
-            weight_decay=self.weight_decay
+            lr=self.learning_rate 
+            # weight_decay=self.weight_decay
         ) if optimizer is None else optimizer
         self.epochs = epochs
         self.patience = patience
@@ -80,9 +81,13 @@ class ModelTrainer():
         self.random_state = random_state
         self.train_losses = []
         self.valid_losses = []
+        self.train_pr_aucs = []
+        self.valid_pr_aucs = []
         self.best_model = None
         self.best_train_loss = float('inf')
         self.best_valid_loss = float('inf')
+        self.best_train_pr_auc = 0.0
+        self.best_valid_pr_auc = 0.0
         self.break_epoch = 1
         self.best_epoch = 1
 
@@ -91,30 +96,38 @@ class ModelTrainer():
         torch.manual_seed( self.random_state )
         epochs_no_improve = 0
 
+        # Prepare numpy versions of y_train and y_valid for PR AUC calculation (after each epoch)
+        y_train_np = self.y_train.cpu().detach().numpy().ravel()
+        y_valid_np = self.y_valid.cpu().detach().numpy().ravel()
+
         for epoch in range(1, self.epochs+1):
             self.model.train()
             
             # Forward pass
             y_train_logits = self.model( self.X_train ) # logits for train data
-            # y_train_probs = torch.softmax(y_train_logits, dim=1)
+            y_train_probs = torch.softmax(y_train_logits, dim=-1).cpu().detach().numpy() # probabilities for train data
             
             # Calculate loss (Inside CrossEntropy there is Softmax calculated so as input we put logits)
+            # and calculate PR AUC for training data
             loss = self.loss_fn(y_train_logits, self.y_train)
+            train_pr_auc = average_precision_score(y_train_np, y_train_probs[:, 1])
 
-            # Apply L1 regularization
-            if (self.reg_type is not None and self.reg_type.lower() == 'l1'):
-                l1_norm = sum(param.abs().sum() for param in self.model.parameters())
-                loss += self.lambda_reg * l1_norm
-                
-            # Apply L2 regularization, previous implementation (commented out) was based on manual calculation of L2 norm, 
-            # but now we use weight decay in the optimizer which is more efficient and numerically stable
-            # elif self.reg_type.lower() == 'l2':
-            #     l2_norm = sum(param.pow(2).sum() for param in self.model.parameters())
-            #     loss += self.lambda_reg * l2_norm
+            # Apply regularization
+            if self.reg_type is not None:
+                # L1 regularization
+                if self.reg_type.lower() == 'l1':
+                    l1_norm = sum(param.abs().sum() for param in self.model.parameters())
+                    loss += self.lambda_reg * l1_norm
+                    
+                # L2 regularization
+                elif self.reg_type.lower() == 'l2':
+                    l2_norm = sum(param.pow(2).sum() for param in self.model.parameters())
+                    loss += self.lambda_reg * l2_norm
 
-            # Save current loss value
+            # Save current diagnostics measures for training data
             self.train_losses.append( loss.item() )
-
+            self.train_pr_aucs.append( train_pr_auc )
+            
             # Zeroed gradients
             self.optimizer.zero_grad()
             
@@ -126,14 +139,16 @@ class ModelTrainer():
             self.model.eval()
             with torch.no_grad():   
                 y_valid_logits = self.model( self.X_valid ) # logits for valid data
-                # y_valid_probs = torch.softmax(y_valid_logits, dim=-1)
-                # y_valid_pred = y_valid_probs.argmax(dim=1) # probabilities -> labels (predictions)
+                y_valid_probs = torch.softmax(y_valid_logits, dim=-1).cpu().detach().numpy() # probabilities for valid data
+                
                 valid_loss = self.loss_fn(y_valid_logits, self.y_valid)
-                # Save current valid loss
+                valid_pr_auc = average_precision_score(y_valid_np, y_valid_probs[:, 1])
+                # Save current diagnostics measures for validation data
                 self.valid_losses.append( valid_loss.item() ) 
+                self.valid_pr_aucs.append( valid_pr_auc )
 
             # Early stopping 
-            if valid_loss < self.best_valid_loss:
+            if valid_loss.item() < self.best_valid_loss:
                 # Saving current best model parameters and as the training finishes we will return these parameters
                 # for the latest best model
                 best_model_state = copy.deepcopy(self.model.state_dict())
@@ -141,20 +156,25 @@ class ModelTrainer():
                 self.best_model.load_state_dict(best_model_state)
                 self.best_train_loss = loss.item()
                 self.best_valid_loss = valid_loss.item()
+                self.best_train_pr_auc = train_pr_auc
+                self.best_valid_pr_auc = valid_pr_auc
                 epochs_no_improve = 0
             else:
                 epochs_no_improve += 1
                 if epochs_no_improve >= self.patience:
                     self.best_epoch = int(epoch - self.patience)
                     print(f"Early stopping at epoch {epoch} ...")
-                    print(f"\nEpoch: {epoch} | Train loss: {loss:.5f} | Valid loss: {valid_loss:.5f}")    
+                    print(f"\nEpoch: {epoch} | Train loss: {loss.item():.5f} | Valid loss: {valid_loss.item():.5f} | " + 
+                          f"Train PR AUC: {train_pr_auc:.5f} | Valid PR AUC: {valid_pr_auc:.5f}")    
                     print(f"Best model obtained at epoch {self.best_epoch}")
-                    print(f"Epoch: {self.best_epoch} | Train loss: {self.best_train_loss:.5f} | Valid loss: {self.best_valid_loss:.5f}")
+                    print(f"Epoch: {self.best_epoch} | Train loss: {self.best_train_loss:.5f} | Valid loss: {self.best_valid_loss:.5f} | " +
+                          f"Train PR AUC: {self.best_train_pr_auc:.5f} | Valid PR AUC: {self.best_valid_pr_auc:.5f}")
                     self.break_epoch = epoch
                     break
             
             if (epoch) % 100 == 0:
-                print(f"Epoch: {epoch} | Train loss: {loss:.5f} | Valid loss: {valid_loss:.5f}")
+                print(f"Epoch: {epoch} | Train loss: {loss.item():.5f} | Valid loss: {valid_loss.item():.5f} | " + 
+                      f"Train PR AUC: {train_pr_auc:.5f} | Valid PR AUC: {valid_pr_auc:.5f}")
                 self.break_epoch = epoch
 
         # We return self (finished training process)
@@ -213,6 +233,7 @@ class NeuralNetClassifier(BaseEstimator, ClassifierMixin):
             stratify=y
         )
         # Converting dataframes to tensors
+        # X_train, y_train, X_valid, y_valid are assumed to be pd.DataFrame, pd.Series or np.array 
         X_train_tensor = torch.tensor( X_train.to_numpy(), dtype=torch.float32, device=self.device )
         y_train_tensor = torch.tensor( y_train.to_numpy(), dtype=torch.long, device=self.device )
         X_valid_tensor = torch.tensor( X_valid.to_numpy(), dtype=torch.float32, device=self.device )
