@@ -30,7 +30,8 @@ def draw_distribution(
         barplot_max_cols=20, 
         label_rot_for_categorical=0, 
         top_n_freq=5, 
-        plot_color='tab:blue'
+        plot_color='tab:blue',
+        title_fontsize=14
     ):
     plot_shape = subplot_shape(df, subplot_cols=subplot_cols)
     fig, axes = plt.subplots(plot_shape[0], plot_shape[1], figsize=subplot_size)
@@ -95,7 +96,7 @@ def draw_distribution(
                     edgecolor='black'
                 )
                 plot_type = 'histogram'
-        ax.set_title(f"{col}{top_frequent}")
+        ax.set_title(f"{col}{top_frequent}", fontsize=title_fontsize)
         ax.set_xlabel('Value')
         ax.set_ylabel('Count')
         ax.set_axisbelow(True)
@@ -861,7 +862,7 @@ def pca_visualization(
         ax.set_title(title)
         ax.set_xlabel(f'PC1 ({pca.explained_variance_ratio_[0]*100:.2f}%)', fontsize=12)
         ax.set_ylabel(f'PC2 ({pca.explained_variance_ratio_[1]*100:.2f}%)', fontsize=12)
-
+        
         # Legend
         for class_value, color in colors_dict.items():
             ax.scatter(
@@ -877,13 +878,15 @@ def pca_visualization(
 
 # !pip install fpdf
 from fpdf import FPDF
+import os 
+
 """ Helper function to convert a DataFrame to a PDF with a table of controlled width, handling long text and many columns by scaling and cutting text. """
-def dataframe_to_pdf(df, filename, title="Tabela statystyk", max_rows=30, max_table_width=190, int_values=False):
+def dataframe_to_pdf(df, rel_path, title="Tabela statystyk", max_rows=30, max_table_width=190, int_values=False):
     """
     Converts a DataFrame to a PDF with a table of controlled width.
     Args:
         df: DataFrame to export
-        filename: output file name
+        rel_path: relative output path, e.g. 'folder/filename.pdf'
         title: table title
         max_rows: max number of rows to display (default 30)
         max_table_width: max width of the entire table in mm (default 190mm)
@@ -906,7 +909,7 @@ def dataframe_to_pdf(df, filename, title="Tabela statystyk", max_rows=30, max_ta
         warning = ""
         
     columns = df_display.columns.tolist()
-    index = df_display.index.tolist()
+    index = df_display.index.tolist()    
     
     # Calcuating column widths with a limit
     pdf.set_font('Times', '', 6)
@@ -957,9 +960,9 @@ def dataframe_to_pdf(df, filename, title="Tabela statystyk", max_rows=30, max_ta
         for i, col in enumerate(columns):
             value = df_display.loc[idx, col]
             if int_values and isinstance(value, (int, np.integer)):
-                cell_text = f'{value:.0f}'
+                cell_text = f'{value:,.0f}'.replace(',', ' ')
             elif isinstance(value, (float, np.number)):
-                cell_text = f'{value:,.2f}' if abs(value) < 100 else f'{value:,.0f}'
+                cell_text = f'{value:.2f}' if abs(value) < 100 else f'{value:,.0f}'.replace(',', ' ')
             else:
                 cell_text = str(value)
             
@@ -976,6 +979,7 @@ def dataframe_to_pdf(df, filename, title="Tabela statystyk", max_rows=30, max_ta
         pdf.ln(4)
         pdf.set_font('Times', 'I', 8)
         pdf.cell(0, 5, warning, 0, 1)
-        
-    pdf.output(filename)
-    print(f"PDF generated: {filename} (table width: {total_width:.1f}mm)")
+
+    cwd = os.path.dirname(os.getcwd())
+    pdf.output(os.path.join(cwd, rel_path))
+    print(f"PDF generated: {rel_path} (table width: {total_width:.1f}mm)")
